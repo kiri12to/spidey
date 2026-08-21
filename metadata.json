@@ -1,0 +1,6 @@
+{
+  "name": "Spidey",
+  "description": "Personal productivity world featuring noir aesthetics, standalone tasks, collapsible task groups, Pomodoro focus timers, two-way Google Tasks sync, and an interactive roaming noir spider companion.",
+  "requestFramePermissions": ["notifications"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

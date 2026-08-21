@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <radialGradient id="bgGrad" cx="50%" cy="50%" r="50%" fx="30%" fy="30%">
+      <stop offset="0%" stop-color="#18181b"/>
+      <stop offset="100%" stop-color="#09090b"/>
+    </radialGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+  </defs>
+  <!-- Background with rounded rectangle for app icon -->
+  <rect width="512" height="512" rx="112" fill="url(#bgGrad)"/>
+  <rect width="504" height="504" x="4" y="4" rx="108" fill="none" stroke="#27272a" stroke-width="4"/>
+
+  <!-- Subtle Web Graphic in background -->
+  <g stroke="#27272a" stroke-width="1.5" opacity="0.4">
+    <line x1="256" y1="256" x2="60" y2="60"/>
+    <line x1="256" y1="256" x2="452" y2="60"/>
+    <line x1="256" y1="256" x2="60" y2="452"/>
+    <line x1="256" y1="256" x2="452" y2="452"/>
+    <line x1="256" y1="256" x2="256" y2="40"/>
+    <line x1="256" y1="256" x2="40" y2="256"/>
+    <line x1="256" y1="256" x2="472" y2="256"/>
+    <line x1="256" y1="256" x2="256" y2="472"/>
+    <circle cx="256" cy="256" r="60" fill="none"/>
+    <circle cx="256" cy="256" r="120" fill="none"/>
+    <circle cx="256" cy="256" r="180" fill="none"/>
+  </g>
+
+  <!-- Central Noir Spider Emblem -->
+  <g transform="translate(0, 0)">
+    <!-- Silk Drop Line -->
+    <line x1="256" y1="40" x2="256" y2="180" stroke="#f4f4f5" stroke-width="3" stroke-dasharray="6,4" opacity="0.8"/>
+
+    <!-- Spider Legs (Stylized Noir) -->
+    <!-- Left Legs -->
+    <path d="M 230 220 Q 130 160 100 80" fill="none" stroke="#e4e4e7" stroke-width="14" stroke-linecap="round"/>
+    <path d="M 220 250 Q 110 210 70 180" fill="none" stroke="#e4e4e7" stroke-width="12" stroke-linecap="round"/>
+    <path d="M 220 280 Q 100 320 60 370" fill="none" stroke="#e4e4e7" stroke-width="12" stroke-linecap="round"/>
+    <path d="M 230 320 Q 120 400 90 450" fill="none" stroke="#e4e4e7" stroke-width="14" stroke-linecap="round"/>
+
+    <!-- Right Legs -->
+    <path d="M 282 220 Q 382 160 412 80" fill="none" stroke="#e4e4e7" stroke-width="14" stroke-linecap="round"/>
+    <path d="M 292 250 Q 402 210 442 180" fill="none" stroke="#e4e4e7" stroke-width="12" stroke-linecap="round"/>
+    <path d="M 292 280 Q 412 320 452 370" fill="none" stroke="#e4e4e7" stroke-width="12" stroke-linecap="round"/>
+    <path d="M 282 320 Q 392 400 422 450" fill="none" stroke="#e4e4e7" stroke-width="14" stroke-linecap="round"/>
+
+    <!-- Spider Body - Abdomen -->
+    <ellipse cx="256" cy="330" rx="55" ry="75" fill="#18181b" stroke="#3f3f46" stroke-width="6"/>
+    
+    <!-- Red Hourglass Symbol -->
+    <path d="M 242 295 L 270 295 L 256 325 L 270 355 L 242 355 L 256 325 Z" fill="#dc2626" filter="url(#glow)"/>
+
+    <!-- Spider Body - Cephalothorax -->
+    <ellipse cx="256" cy="235" rx="42" ry="46" fill="#09090b" stroke="#3f3f46" stroke-width="6"/>
+
+    <!-- Crimson Eyes -->
+    <circle cx="244" cy="215" r="7" fill="#ef4444"/>
+    <circle cx="268" cy="215" r="7" fill="#ef4444"/>
+    <circle cx="232" cy="228" r="4.5" fill="#f87171"/>
+    <circle cx="280" cy="228" r="4.5" fill="#f87171"/>
+
+    <!-- Pedipalps -->
+    <path d="M 242 195 Q 236 175 228 165" fill="none" stroke="#71717a" stroke-width="9" stroke-linecap="round"/>
+    <path d="M 270 195 Q 276 175 284 165" fill="none" stroke="#71717a" stroke-width="9" stroke-linecap="round"/>
+  </g>
+</svg>

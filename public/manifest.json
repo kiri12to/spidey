@@ -1,0 +1,59 @@
+{
+  "name": "Spidey",
+  "short_name": "Spidey",
+  "id": "/?source=pwa",
+  "start_url": "/?source=pwa",
+  "scope": "/",
+  "description": "Minimalist Spider-Noir productivity workspace with tasks, focus timers, ambient atmosphere, interactive spider companion, and Google Tasks sync.",
+  "display": "standalone",
+  "display_override": [
+    "window-controls-overlay",
+    "standalone",
+    "minimal-ui"
+  ],
+  "background_color": "#09090b",
+  "theme_color": "#09090b",
+  "orientation": "any",
+  "categories": [
+    "productivity",
+    "utilities",
+    "lifestyle"
+  ],
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/favicon.ico",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Today's Ledger",
+      "short_name": "Today",
+      "description": "View today's tasks and schedule",
+      "url": "/?tab=today",
+      "icons": [{ "src": "/icon.svg", "sizes": "any" }]
+    },
+    {
+      "name": "Focus Timer",
+      "short_name": "Timer",
+      "description": "Start a noir Pomodoro focus session",
+      "url": "/?tab=timer",
+      "icons": [{ "src": "/icon.svg", "sizes": "any" }]
+    },
+    {
+      "name": "Field Notes",
+      "short_name": "Notes",
+      "description": "Capture thoughts and observations",
+      "url": "/?tab=notes",
+      "icons": [{ "src": "/icon.svg", "sizes": "any" }]
+    }
+  ],
+  "prefer_related_applications": false
+}
