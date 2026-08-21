@@ -318,23 +318,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           <div className="flex items-center justify-between">
             <div>
               <h4 className="text-sm font-semibold text-zinc-100 font-heading flex items-center gap-1.5">
-                <span>Spidey (Llama 3.1 Companion)</span>
+                <span>Local AI (Qwen3 / Ollama)</span>
               </h4>
               <p className="text-xs font-mono-code text-zinc-400">
-                Natural language actions & connector for local AI models (Ollama /api/chat, LM Studio).
+                Connect your local Ollama or OpenAI-compatible model server.
               </p>
             </div>
 
             <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="checkbox"
-                checked={settings.localAi?.enabled || false}
+                checked={settings.localAi?.enabled !== false}
                 onChange={(e) =>
                   onUpdateSettings({
                     localAi: {
                       ...(settings.localAi || {
                         endpointUrl: 'http://localhost:11434/api/chat',
-                        modelName: 'llama3.1:8b',
+                        modelName: 'qwen3:8b',
                         provider: 'ollama',
                       }),
                       enabled: e.target.checked,
@@ -344,7 +344,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 className="rounded bg-neutral-900 border-neutral-700 text-red-600 focus:ring-0"
               />
               <span className="text-xs font-mono-code text-zinc-300">
-                {settings.localAi?.enabled ? 'Local Server On' : 'Offline Built-in'}
+                {settings.localAi?.enabled !== false ? 'Enabled' : 'Disabled'}
               </span>
             </label>
           </div>
@@ -392,13 +392,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </label>
                 <input
                   type="text"
-                  value={settings.localAi?.modelName || 'llama3.1:8b'}
+                  value={settings.localAi?.modelName || 'qwen3:8b'}
                   onChange={(e) =>
                     onUpdateSettings({
                       localAi: { ...settings.localAi, modelName: e.target.value },
                     })
                   }
-                  placeholder="llama3.1:8b"
+                  placeholder="qwen3:8b"
                   className="w-full px-3 py-1.5 bg-neutral-900 border border-neutral-800 rounded-lg text-xs font-mono-code text-zinc-200"
                 />
               </div>

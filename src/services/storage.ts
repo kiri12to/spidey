@@ -203,9 +203,9 @@ export const defaultSettings: UserSettings = {
   spiderCompanionEnabled: true,
   spiderSize: 'medium',
   localAi: {
-    enabled: false,
+    enabled: true,
     endpointUrl: 'http://localhost:11434/api/chat',
-    modelName: 'llama3.1:8b',
+    modelName: 'qwen3:8b',
     provider: 'ollama',
     customSystemPrompt: 'You are Spidey, a sharp, observant female AI companion and real friend to Anas in a noir-styled focus hub. You speak naturally, concisely, and with grounded confidence. No robot clichés or fake enthusiasm.',
   },

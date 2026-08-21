@@ -2,26 +2,16 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   X, 
   Send, 
-  Bot, 
-  Sparkles, 
-  Cpu, 
   CheckCircle2, 
-  Clock, 
-  AlertCircle, 
-  ChevronRight, 
-  Server, 
-  Wifi, 
-  WifiOff, 
-  RefreshCw,
-  Sliders,
-  Bookmark,
-  Trash2,
-  Mic,
-  MicOff,
-  RotateCcw
+  Bookmark, 
+  Trash2, 
+  Mic, 
+  RotateCcw, 
+  Settings as SettingsIcon,
+  Server
 } from 'lucide-react';
-import { ChatMessage, LocalAiSettings, UserSettings } from '../types';
-import { sendChatMessage } from '../services/aiAssistant';
+import { ChatMessage, UserSettings } from '../types';
+import { sendUserMessage, pingLocalAi } from '../agent';
 import { spideyApi } from '../services/spideyApi';
 import { loadStoredChatMessages, saveStoredChatMessages } from '../services/storage';
 import { playSpideyReplySound } from '../services/sound';
@@ -50,8 +40,9 @@ export const SpideyAssistantDrawer: React.FC<SpideyAssistantDrawerProps> = ({
       {
         id: 'msg-init-1',
         sender: 'spidey',
-        text: `Hey ${settings.userName || 'Anas'}. I'm here watching your timeline. What are we getting done?`,
+        text: `Watching the board. What's on your mind?`,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        modelUsed: settings.localAi?.modelName || 'local-ai',
       },
     ];
   });
@@ -63,10 +54,12 @@ export const SpideyAssistantDrawer: React.FC<SpideyAssistantDrawerProps> = ({
   const [memoriesList, setMemoriesList] = useState<string[]>(spideyApi.getMemories());
   const [isTestingLocalAi, setIsTestingLocalAi] = useState(false);
   const [localAiPingStatus, setLocalAiPingStatus] = useState<'idle' | 'success' | 'failed'>('idle');
+  const [lastPingMessage, setLastPingMessage] = useState<string>('');
   const [isListening, setIsListening] = useState(false);
   const [speechSupported, setSpeechSupported] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
   const recognitionRef = useRef<any>(null);
 
   // Check speech recognition support
@@ -130,6 +123,7 @@ export const SpideyAssistantDrawer: React.FC<SpideyAssistantDrawerProps> = ({
   useEffect(() => {
     if (isOpen) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      setTimeout(() => inputRef.current?.focus(), 150);
     }
   }, [messages, isOpen]);
 
@@ -138,8 +132,9 @@ export const SpideyAssistantDrawer: React.FC<SpideyAssistantDrawerProps> = ({
       {
         id: `msg-init-${Date.now()}`,
         sender: 'spidey',
-        text: `Chat cleared. Ready when you are, ${settings.userName || 'Anas'}.`,
+        text: `Clean slate. Standing by.`,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        modelUsed: settings.localAi?.modelName || 'local-ai',
       },
     ];
     setMessages(fresh);
@@ -167,7 +162,7 @@ export const SpideyAssistantDrawer: React.FC<SpideyAssistantDrawerProps> = ({
     setIsLoading(true);
 
     try {
-      const result = await sendChatMessage(
+      const result = await sendUserMessage(
         textToSend,
         messages,
         settings.localAi,
@@ -180,6 +175,7 @@ export const SpideyAssistantDrawer: React.FC<SpideyAssistantDrawerProps> = ({
         text: result.reply,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         actionExecuted: result.actionExecuted,
+        modelUsed: result.modelUsed,
       };
 
       setMessages((prev) => [...prev, spideyMsg]);
@@ -194,9 +190,10 @@ export const SpideyAssistantDrawer: React.FC<SpideyAssistantDrawerProps> = ({
         {
           id: `spidey-${Date.now()}`,
           sender: 'spidey',
-          text: `Hit a snag processing that, ${settings.userName || 'Anas'}. Let's try again.`,
+          text: err.message || `Couldn't reach local model endpoint.`,
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           isError: true,
+          modelUsed: settings.localAi?.modelName || 'local-ai',
         },
       ]);
     } finally {
@@ -207,34 +204,20 @@ export const SpideyAssistantDrawer: React.FC<SpideyAssistantDrawerProps> = ({
   const handleTestLocalConnection = async () => {
     setIsTestingLocalAi(true);
     setLocalAiPingStatus('idle');
+    setLastPingMessage('');
 
     try {
-      const isOllama = settings.localAi.provider === 'ollama';
-      let testUrl = settings.localAi.endpointUrl.trim() || 'http://localhost:11434/api/chat';
-      
-      if (isOllama) {
-        // Strip /api/chat or /api/generate to ping /api/tags
-        const baseUrl = testUrl.replace(/\/api\/(chat|generate)\/?$/, '');
-        testUrl = `${baseUrl}/api/tags`;
-      }
-
-      const res = await fetch(testUrl, {
-        method: isOllama ? 'GET' : 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: isOllama ? undefined : JSON.stringify({
-          model: settings.localAi.modelName || 'llama3.1:8b',
-          messages: [{ role: 'user', content: 'ping' }],
-          max_tokens: 1,
-        }),
-      });
-
-      if (res.ok) {
+      const res = await pingLocalAi(settings.localAi);
+      if (res.success) {
         setLocalAiPingStatus('success');
+        setLastPingMessage(res.message);
       } else {
         setLocalAiPingStatus('failed');
+        setLastPingMessage(res.message);
       }
-    } catch (e) {
+    } catch (e: any) {
       setLocalAiPingStatus('failed');
+      setLastPingMessage(e.message || 'Connection failed');
     } finally {
       setIsTestingLocalAi(false);
     }
@@ -243,125 +226,126 @@ export const SpideyAssistantDrawer: React.FC<SpideyAssistantDrawerProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
+    <div 
+      id="spidey-drawer-backdrop"
+      className="fixed inset-0 z-50 flex justify-end bg-black/75 backdrop-blur-xs animate-in fade-in duration-150"
+      onClick={onClose}
+    >
       <div 
-        className="w-full max-w-md h-full bg-[#0d0d10] border-l border-neutral-800/80 shadow-2xl flex flex-col justify-between text-zinc-200 animate-in slide-in-from-right duration-200"
+        id="spidey-drawer-container"
+        className="w-full max-w-md h-full bg-[#09090b] border-l border-neutral-800/80 shadow-2xl flex flex-col justify-between text-zinc-200 animate-in slide-in-from-right duration-200 font-sans"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
-        <div className="p-4 border-b border-neutral-800/80 bg-[#09090b]/90 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            {/* Spidey female noir avatar */}
-            <div className="relative w-8 h-8 rounded-lg bg-neutral-900 border border-neutral-800 flex items-center justify-center">
+        {/* Minimal Noir Header */}
+        <div id="spidey-header" className="px-4 py-3.5 border-b border-neutral-800/70 bg-[#0c0c0e] flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            {/* Minimal glyph */}
+            <div className="w-7 h-7 rounded-lg bg-neutral-900 border border-neutral-800 flex items-center justify-center">
               <svg
-                className="w-4 h-4 text-red-500"
+                className="w-4 h-4 text-red-500/90"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
                 strokeWidth="2"
               >
-                <circle cx="12" cy="12" r="2" fill="currentColor" />
-                <path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M5.6 18.4L18.4 5.6" strokeWidth="1.2" opacity="0.6" />
+                <circle cx="12" cy="12" r="2.5" fill="currentColor" />
+                <path d="M12 2v20M2 12h20M4.9 4.9l14.2 14.2M4.9 19.1L19.1 4.9" strokeWidth="1.2" opacity="0.5" />
               </svg>
-              <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-[#09090b]" />
             </div>
 
-            <div>
-              <div className="flex items-center gap-1.5">
-                <span className="font-heading font-bold text-sm tracking-wider text-zinc-100 uppercase">
-                  Spidey
-                </span>
-                <span className="text-[10px] font-mono-code px-1.5 py-0.2 rounded bg-red-950/70 border border-red-900/60 text-red-300">
-                  Companion
-                </span>
-              </div>
-              <p className="text-[11px] font-mono-code text-zinc-400">
-                Focus Hub for {settings.userName || 'Anas'}
-              </p>
+            <div className="flex items-baseline gap-2">
+              <span className="font-semibold text-sm tracking-wider text-zinc-100 uppercase">
+                Spidey
+              </span>
+              <span className="text-[11px] font-mono text-zinc-500">
+                {settings.localAi?.modelName || 'local-ai'}
+              </span>
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1">
             <button
+              id="clear-spidey-chat-btn"
               onClick={handleClearHistory}
-              title="Clear Conversation History"
-              className="p-1.5 rounded-md border text-xs transition bg-neutral-900 text-zinc-400 border-neutral-800 hover:text-zinc-200"
+              title="Clear conversation"
+              className="p-1.5 rounded-md text-zinc-500 hover:text-zinc-300 hover:bg-neutral-800/60 transition"
             >
               <RotateCcw className="w-3.5 h-3.5" />
             </button>
 
             <button
+              id="spidey-memories-btn"
               onClick={() => {
                 setShowMemories(!showMemories);
                 if (showConfig) setShowConfig(false);
               }}
-              title="What Spidey Remembers"
-              className={`p-1.5 rounded-md border text-xs transition flex items-center gap-1 ${
+              title="Memories"
+              className={`p-1.5 rounded-md text-xs transition flex items-center gap-1 ${
                 showMemories
-                  ? 'bg-neutral-800 text-red-400 border-neutral-700'
-                  : 'bg-neutral-900 text-zinc-400 border-neutral-800 hover:text-zinc-200'
+                  ? 'bg-neutral-800 text-red-400'
+                  : 'text-zinc-500 hover:text-zinc-300 hover:bg-neutral-800/60'
               }`}
             >
               <Bookmark className="w-3.5 h-3.5" />
               {memoriesList.length > 0 && (
-                <span className="text-[10px] font-bold text-red-400">{memoriesList.length}</span>
+                <span className="text-[10px] font-mono text-red-400">{memoriesList.length}</span>
               )}
             </button>
 
             <button
+              id="spidey-settings-toggle-btn"
               onClick={() => {
                 setShowConfig(!showConfig);
                 if (showMemories) setShowMemories(false);
               }}
-              title="Local AI Server Settings"
-              className={`p-1.5 rounded-md border text-xs transition ${
+              title="Model Settings"
+              className={`p-1.5 rounded-md text-xs transition ${
                 showConfig
-                  ? 'bg-neutral-800 text-red-400 border-neutral-700'
-                  : 'bg-neutral-900 text-zinc-400 border-neutral-800 hover:text-zinc-200'
+                  ? 'bg-neutral-800 text-red-400'
+                  : 'text-zinc-500 hover:text-zinc-300 hover:bg-neutral-800/60'
               }`}
             >
-              <Sliders className="w-3.5 h-3.5" />
+              <SettingsIcon className="w-3.5 h-3.5" />
             </button>
 
             <button
+              id="close-spidey-drawer-btn"
               onClick={onClose}
-              className="p-1.5 rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-neutral-800 transition"
+              className="p-1.5 rounded-md text-zinc-500 hover:text-zinc-300 hover:bg-neutral-800/60 transition ml-1"
             >
               <X className="w-4 h-4" />
             </button>
           </div>
         </div>
 
-        {/* Spidey Memories Panel */}
+        {/* Memories Slide-down */}
         {showMemories && (
-          <div className="p-3.5 bg-[#121216] border-b border-neutral-800 text-xs font-mono-code space-y-2.5 animate-in slide-in-from-top-2 duration-150">
+          <div id="spidey-memories-panel" className="p-3.5 bg-[#111114] border-b border-neutral-800 text-xs font-mono space-y-2 animate-in slide-in-from-top-2 duration-150">
             <div className="flex items-center justify-between">
-              <span className="text-zinc-200 font-semibold flex items-center gap-1.5">
+              <span className="text-zinc-300 font-medium flex items-center gap-1.5">
                 <Bookmark className="w-3.5 h-3.5 text-red-400" />
-                What Spidey Remembers ({memoriesList.length})
+                Memories ({memoriesList.length})
               </span>
               {memoriesList.length > 0 && (
                 <button
+                  id="clear-all-memories-btn"
                   onClick={() => spideyApi.clearMemories()}
                   className="text-[11px] text-red-400 hover:text-red-300 flex items-center gap-1"
                 >
-                  <Trash2 className="w-3 h-3" /> Clear All
+                  <Trash2 className="w-3 h-3" /> Clear
                 </button>
               )}
             </div>
-            <p className="text-[11px] text-zinc-400">
-              Spidey learns details from conversations (via <code className="text-zinc-300">[[REMEMBER: ...]]</code>) and references them in dialogue.
-            </p>
             {memoriesList.length === 0 ? (
-              <div className="text-[11px] text-zinc-500 italic py-1">
-                No memories saved yet. Share habits or preferences with Spidey in chat!
-              </div>
+              <p className="text-[11px] text-zinc-500 italic py-1">
+                No memories stored yet.
+              </p>
             ) : (
-              <div className="max-h-36 overflow-y-auto space-y-1.5 pr-1">
+              <div className="max-h-40 overflow-y-auto space-y-1.5 pr-1">
                 {memoriesList.map((m, idx) => (
                   <div
                     key={idx}
-                    className="p-2 rounded bg-neutral-900/90 border border-neutral-800 text-zinc-300 text-[11px] flex items-start justify-between gap-2"
+                    className="p-2 rounded bg-neutral-900 border border-neutral-800/80 text-zinc-300 text-[11px] flex items-start justify-between gap-2"
                   >
                     <span>• {m}</span>
                     <button
@@ -377,101 +361,85 @@ export const SpideyAssistantDrawer: React.FC<SpideyAssistantDrawerProps> = ({
           </div>
         )}
 
-        {/* Local AI Server Settings Accordion */}
+        {/* Settings Slide-down */}
         {showConfig && (
-          <div className="p-3.5 bg-[#121216] border-b border-neutral-800 text-xs font-mono-code space-y-3 animate-in slide-in-from-top-2 duration-150">
+          <div id="spidey-config-panel" className="p-4 bg-[#111114] border-b border-neutral-800 text-xs space-y-3 animate-in slide-in-from-top-2 duration-150 font-mono">
             <div className="flex items-center justify-between">
-              <span className="text-zinc-300 font-semibold flex items-center gap-1.5">
+              <span className="text-zinc-200 font-semibold flex items-center gap-1.5">
                 <Server className="w-3.5 h-3.5 text-red-400" />
-                Local AI Connector (Llama 3.1:8b)
+                Local AI Configuration
               </span>
-              <label className="flex items-center gap-1.5 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={settings.localAi.enabled}
-                  onChange={(e) =>
-                    onUpdateSettings({
-                      localAi: { ...settings.localAi, enabled: e.target.checked },
-                    })
-                  }
-                  className="rounded bg-neutral-900 border-neutral-700 text-red-600 focus:ring-0"
-                />
-                <span className="text-[11px] text-zinc-400">Enable Local Model</span>
-              </label>
+              <span className="text-[10px] text-zinc-500">Ollama / OpenAI</span>
             </div>
 
-            <p className="text-[11px] text-zinc-400 leading-relaxed">
-              Connect Spidey directly to your offline local LLM via Ollama <code className="text-zinc-300">/api/chat</code>.
-            </p>
-
-            <div className="space-y-2">
+            <div className="space-y-2 pt-1">
               <div>
-                <label className="block text-[11px] text-zinc-400 mb-0.5">Endpoint URL</label>
+                <label className="block text-[10px] text-zinc-400 uppercase tracking-wider mb-1">
+                  Server Endpoint
+                </label>
                 <input
                   type="text"
-                  value={settings.localAi.endpointUrl}
+                  value={settings.localAi?.endpointUrl || 'http://localhost:11434/api/chat'}
                   onChange={(e) =>
                     onUpdateSettings({
                       localAi: { ...settings.localAi, endpointUrl: e.target.value },
                     })
                   }
-                  placeholder="http://localhost:11434/api/chat"
-                  className="w-full px-2.5 py-1 bg-neutral-900 border border-neutral-800 rounded text-xs text-zinc-200 placeholder-zinc-600"
+                  className="w-full px-3 py-1.5 bg-neutral-900 border border-neutral-800 rounded text-xs text-zinc-200"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="block text-[11px] text-zinc-400 mb-0.5">Provider Format</label>
+                  <label className="block text-[10px] text-zinc-400 uppercase tracking-wider mb-1">
+                    Provider
+                  </label>
                   <select
-                    value={settings.localAi.provider}
+                    value={settings.localAi?.provider || 'ollama'}
                     onChange={(e) =>
                       onUpdateSettings({
                         localAi: { ...settings.localAi, provider: e.target.value as any },
                       })
                     }
-                    className="w-full px-2 py-1 bg-neutral-900 border border-neutral-800 rounded text-xs text-zinc-200"
+                    className="w-full px-2 py-1.5 bg-neutral-900 border border-neutral-800 rounded text-xs text-zinc-200"
                   >
-                    <option value="ollama">Ollama (/api/chat)</option>
-                    <option value="openai_compatible">OpenAI / LM Studio</option>
+                    <option value="ollama">Ollama</option>
+                    <option value="openai_compatible">OpenAI API</option>
                   </select>
                 </div>
-
                 <div>
-                  <label className="block text-[11px] text-zinc-400 mb-0.5">Model Name</label>
+                  <label className="block text-[10px] text-zinc-400 uppercase tracking-wider mb-1">
+                    Model Tag
+                  </label>
                   <input
                     type="text"
-                    value={settings.localAi.modelName}
+                    value={settings.localAi?.modelName || 'qwen3:8b'}
                     onChange={(e) =>
                       onUpdateSettings({
                         localAi: { ...settings.localAi, modelName: e.target.value },
                       })
                     }
-                    placeholder="llama3.1:8b"
-                    className="w-full px-2.5 py-1 bg-neutral-900 border border-neutral-800 rounded text-xs text-zinc-200"
+                    className="w-full px-3 py-1.5 bg-neutral-900 border border-neutral-800 rounded text-xs text-zinc-200"
                   />
                 </div>
               </div>
 
-              <div className="pt-1 flex items-center justify-between">
+              <div className="flex items-center gap-2 pt-1">
                 <button
                   onClick={handleTestLocalConnection}
                   disabled={isTestingLocalAi}
-                  className="flex items-center gap-1 px-2.5 py-1 bg-neutral-800 hover:bg-neutral-700 text-zinc-200 rounded border border-neutral-700 transition"
+                  className="px-3 py-1 bg-neutral-800 hover:bg-neutral-700 rounded text-xs text-zinc-200 transition"
                 >
-                  <RefreshCw className={`w-3 h-3 ${isTestingLocalAi ? 'animate-spin text-red-400' : ''}`} />
-                  <span>{isTestingLocalAi ? 'Pinging...' : 'Test Connection'}</span>
+                  {isTestingLocalAi ? 'Pinging...' : 'Test Connection'}
                 </button>
-
                 {localAiPingStatus === 'success' && (
-                  <span className="text-[11px] text-emerald-400 flex items-center gap-1">
-                    <Wifi className="w-3 h-3" /> Server Connected
+                  <span className="text-[11px] text-emerald-400 truncate max-w-[220px]">
+                    {lastPingMessage || 'Ready'}
                   </span>
                 )}
-
                 {localAiPingStatus === 'failed' && (
-                  <span className="text-[11px] text-red-400 flex items-center gap-1">
-                    <WifiOff className="w-3 h-3" /> Server Offline
+                  <span className="text-[11px] text-red-400 truncate max-w-[220px]">
+                    {lastPingMessage || 'Offline'}
                   </span>
                 )}
               </div>
@@ -479,117 +447,101 @@ export const SpideyAssistantDrawer: React.FC<SpideyAssistantDrawerProps> = ({
           </div>
         )}
 
-        {/* Message Thread */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-3.5">
-          {messages.map((msg) => (
-            <div
-              key={msg.id}
-              className={`flex flex-col ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}
-            >
+        {/* Minimal Noir Message Stream */}
+        <div id="spidey-chat-messages" className="flex-1 overflow-y-auto p-4 space-y-3.5">
+          {messages.map((msg) => {
+            const isUser = msg.sender === 'user';
+            return (
               <div
-                className={`max-w-[85%] rounded-xl px-3.5 py-2.5 text-xs font-mono-code leading-relaxed ${
-                  msg.sender === 'user'
-                    ? 'bg-neutral-800 text-zinc-100 border border-neutral-700/80 rounded-br-none'
-                    : 'bg-[#141419] text-zinc-200 border border-neutral-800/90 rounded-bl-none'
-                } ${msg.isError ? 'border-red-900/60 bg-red-950/30' : ''}`}
+                key={msg.id}
+                className={`flex flex-col ${isUser ? 'items-end' : 'items-start'} animate-in fade-in duration-150`}
               >
-                <div className="whitespace-pre-wrap">{msg.text}</div>
+                <div
+                  className={`max-w-[88%] rounded-xl px-3.5 py-2.5 text-sm leading-relaxed ${
+                    isUser
+                      ? 'bg-neutral-800 text-zinc-100 rounded-br-xs'
+                      : msg.isError
+                      ? 'bg-red-950/30 border border-red-900/50 text-red-300 rounded-bl-xs'
+                      : 'bg-neutral-900/90 border border-neutral-800/80 text-zinc-200 rounded-bl-xs'
+                  }`}
+                >
+                  {msg.text}
 
-                {/* Action Confirmation Badge */}
-                {msg.actionExecuted && (
-                  <div className="mt-2 pt-2 border-t border-neutral-800 flex items-center gap-1.5 text-[11px] text-red-400 font-semibold">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>{msg.actionExecuted.details}</span>
-                  </div>
-                )}
+                  {/* Executed Action Badge */}
+                  {msg.actionExecuted && (
+                    <div className="mt-2 pt-1.5 border-t border-neutral-800/60 flex items-center gap-1.5 text-[11px] text-emerald-400 font-mono">
+                      <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                      <span>{msg.actionExecuted.details}</span>
+                    </div>
+                  )}
+                </div>
+
+                <span className="text-[9px] text-zinc-600 mt-1 px-1 font-mono">
+                  {msg.timestamp}
+                </span>
               </div>
-
-              <span className="text-[10px] font-mono-code text-zinc-600 px-1 mt-0.5">
-                {msg.timestamp}
-              </span>
-            </div>
-          ))}
+            );
+          })}
 
           {isLoading && (
-            <div className="flex items-center gap-2 text-xs font-mono-code text-zinc-500 py-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
-              <span>Spidey is inspecting the dossier...</span>
+            <div className="flex items-center gap-1.5 p-2.5 bg-neutral-900/60 border border-neutral-800/60 rounded-xl rounded-bl-xs w-20 text-zinc-400">
+              <span className="w-1.5 h-1.5 rounded-full bg-red-500/80 animate-pulse" />
+              <span className="w-1.5 h-1.5 rounded-full bg-red-500/80 animate-pulse [animation-delay:0.2s]" />
+              <span className="w-1.5 h-1.5 rounded-full bg-red-500/80 animate-pulse [animation-delay:0.4s]" />
             </div>
           )}
 
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Quick Suggestion Chips */}
-        <div className="px-4 py-2 bg-[#09090b]/80 border-t border-neutral-800/60 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
-          <button
-            onClick={() => handleSendMessage('Brief me on my tasks today')}
-            className="px-2.5 py-1 rounded-full bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-[11px] font-mono-code text-zinc-400 hover:text-zinc-200 transition whitespace-nowrap"
+        {/* Minimal Noir Input Bar */}
+        <div id="spidey-input-bar" className="p-3 border-t border-neutral-800/80 bg-[#0c0c0e]">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleSendMessage();
+            }}
+            className="flex items-center gap-2"
           >
-            Brief me today
-          </button>
-          <button
-            onClick={() => handleSendMessage('Check overdue tasks')}
-            className="px-2.5 py-1 rounded-full bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-[11px] font-mono-code text-zinc-400 hover:text-zinc-200 transition whitespace-nowrap"
-          >
-            Check overdue
-          </button>
-          <button
-            onClick={() => handleSendMessage('Start 25 minute focus timer')}
-            className="px-2.5 py-1 rounded-full bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-[11px] font-mono-code text-zinc-400 hover:text-zinc-200 transition whitespace-nowrap"
-          >
-            Start 25m Timer
-          </button>
-          <button
-            onClick={() => handleSendMessage('Add task Workout tomorrow at 6 PM')}
-            className="px-2.5 py-1 rounded-full bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-[11px] font-mono-code text-zinc-400 hover:text-zinc-200 transition whitespace-nowrap"
-          >
-            + Add Workout
-          </button>
-        </div>
+            {speechSupported && (
+              <button
+                type="button"
+                id="spidey-voice-btn"
+                onClick={toggleVoiceInput}
+                className={`p-2 rounded-lg transition ${
+                  isListening
+                    ? 'bg-red-600 text-white animate-pulse'
+                    : 'bg-neutral-900 text-zinc-400 hover:text-zinc-200 border border-neutral-800'
+                }`}
+                title={isListening ? 'Listening...' : 'Voice Input'}
+              >
+                <Mic className="w-4 h-4" />
+              </button>
+            )}
 
-        {/* Chat Input Bar */}
-        <div className="p-3.5 bg-[#09090b] border-t border-neutral-800 flex items-center gap-2">
-          {speechSupported && (
+            <input
+              ref={inputRef}
+              id="spidey-chat-input"
+              type="text"
+              value={inputValue}
+              onChange={(e) => setInputValue(e.target.value)}
+              placeholder="Express yourself, manage tasks, or talk..."
+              disabled={isLoading}
+              className="flex-1 bg-neutral-900 border border-neutral-800 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-red-600/60 transition font-sans"
+            />
+
             <button
-              onClick={toggleVoiceInput}
-              title={isListening ? 'Listening... click to stop' : 'Voice input (Speak to Spidey)'}
-              className={`p-2 rounded-lg border transition cursor-pointer flex items-center justify-center ${
-                isListening
-                  ? 'bg-red-950 text-red-400 border-red-800 animate-pulse ring-2 ring-red-500/50'
-                  : 'bg-[#121217] text-zinc-400 border-neutral-800/90 hover:text-zinc-200 hover:bg-neutral-800'
-              }`}
+              type="submit"
+              id="spidey-send-btn"
+              disabled={!inputValue.trim() || isLoading}
+              className="p-2 rounded-lg bg-neutral-800 hover:bg-neutral-700 disabled:opacity-40 disabled:hover:bg-neutral-800 text-zinc-100 transition flex items-center justify-center border border-neutral-700"
             >
-              {isListening ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
+              <Send className="w-4 h-4" />
             </button>
-          )}
-
-          <input
-            type="text"
-            value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
-            placeholder={
-              isListening
-                ? 'Listening to your voice...'
-                : "Command Spidey (e.g. 'add task Study at 3pm')..."
-            }
-            className={`flex-1 px-3 py-2 bg-[#121217] border rounded-lg text-xs font-mono-code text-zinc-100 placeholder-zinc-600 focus:outline-none transition ${
-              isListening
-                ? 'border-red-800/80 bg-red-950/20'
-                : 'border-neutral-800/90 focus:border-neutral-700'
-            }`}
-          />
-
-          <button
-            onClick={() => handleSendMessage()}
-            disabled={!inputValue.trim() || isLoading}
-            className="p-2 bg-red-800 hover:bg-red-700 disabled:opacity-50 disabled:hover:bg-red-800 text-white rounded-lg transition cursor-pointer"
-          >
-            <Send className="w-3.5 h-3.5" />
-          </button>
+          </form>
         </div>
       </div>
     </div>
   );
 };
+

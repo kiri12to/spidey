@@ -149,11 +149,13 @@ export function playSpideyReplySound() {
 }
 
 // 4. Ambient Rain Generator
-export function toggleAmbientRain(enable: boolean) {
+export function toggleAmbientRain(enable?: boolean): boolean {
   const ctx = getAudioContext();
-  if (!ctx) return;
+  if (!ctx) return false;
 
-  if (!enable) {
+  const targetState = enable !== undefined ? enable : !rainNode;
+
+  if (!targetState) {
     if (rainGain) {
       rainGain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.5);
       setTimeout(() => {
@@ -163,10 +165,10 @@ export function toggleAmbientRain(enable: boolean) {
         }
       }, 600);
     }
-    return;
+    return false;
   }
 
-  if (rainNode) return; // already active
+  if (rainNode) return true; // already active
 
   // Create pink/brown filtered noise buffer
   const bufferSize = 2 * ctx.sampleRate;

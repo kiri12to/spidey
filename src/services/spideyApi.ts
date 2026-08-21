@@ -180,6 +180,10 @@ class SpideyApiService {
     return this.tasks.find((t) => t.title.toLowerCase().trim() === idOrTitle.toLowerCase().trim());
   }
 
+  public findTaskByTitle(title: string): Task | undefined {
+    return this.getTask(title);
+  }
+
   /**
    * Get tasks scheduled for a specific date (YYYY-MM-DD)
    */
@@ -298,6 +302,10 @@ class SpideyApiService {
     );
   }
 
+  public findGroupByName(name: string): TaskGroup | undefined {
+    return this.getTaskGroup(name);
+  }
+
   public createTaskGroup(name: string, color: string = 'crimson'): TaskGroup {
     // Check if group already exists with this name (case-insensitive)
     const existing = this.groups.find((g) => g.name.toLowerCase().trim() === name.toLowerCase().trim());
@@ -324,6 +332,10 @@ class SpideyApiService {
     const group = this.getTaskGroup(oldNameOrId);
     if (!group) return null;
     return this.updateTaskGroup(group.id, { name: newName });
+  }
+
+  public renameTaskGroup(idOrName: string, newName: string): TaskGroup | null {
+    return this.renameGroup(idOrName, newName);
   }
 
   public deleteGroupByName(nameOrId: string): boolean {
@@ -380,6 +392,17 @@ class SpideyApiService {
       return true;
     }
     return false;
+  }
+
+  public deleteAllTaskGroups(): number {
+    const count = this.groups.length;
+    this.groups = [];
+    // Detach all tasks from groups
+    this.tasks = this.tasks.map((t) => ({ ...t, groupId: null }));
+    saveStoredGroups(this.groups);
+    saveStoredTasks(this.tasks);
+    this.notify();
+    return count;
   }
 
   // ==========================================
@@ -522,6 +545,10 @@ class SpideyApiService {
     saveStoredMemories(this.memories);
     this.notify();
     return true;
+  }
+
+  public addMemory(fact: string): boolean {
+    return this.saveMemory(fact);
   }
 
   public deleteMemory(target: string | number): boolean {
