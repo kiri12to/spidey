@@ -89,9 +89,15 @@ export async function runAgentTurn(
   const toolsExecuted: ToolResult[] = [];
   let actionExecuted: ChatMessage['actionExecuted'] | undefined;
 
-  for (const call of modelResponse.toolCalls) {
+  const toolCalls = Array.isArray(modelResponse.toolCalls)
+    ? modelResponse.toolCalls
+    : [];
+
+  for (const call of toolCalls) {
     const res = await dispatchToolCall(call);
+
     toolsExecuted.push(res);
+
     if (res.actionType && res.actionDetails) {
       actionExecuted = {
         type: res.actionType,
@@ -99,7 +105,6 @@ export async function runAgentTurn(
       };
     }
   }
-
   let finalReply = modelResponse.content.trim();
   if (!finalReply && toolsExecuted.length > 0) {
     finalReply = toolsExecuted.map((t) => t.message).join('. ') + '.';

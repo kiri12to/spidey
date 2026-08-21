@@ -58,9 +58,10 @@ export interface TimerState {
 
 export interface LocalAiSettings {
   enabled: boolean;
-  endpointUrl: string; // e.g. "http://localhost:11434/api/chat" or "http://localhost:1234/v1/chat/completions"
-  modelName: string; // e.g. "llama3.1:8b"
-  provider: 'ollama' | 'openai_compatible';
+  baseUrl: string;
+  modelName: string;
+  contextSize?: number;
+  temperature?: number;
   customSystemPrompt?: string;
 }
 

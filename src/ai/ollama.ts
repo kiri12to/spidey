@@ -1,134 +1,341 @@
-import { LocalAiSettings } from '../types';
-import { ModelMessage, ModelResponse } from '../agent/types';
-import { normalizeOllamaUrl, parseLocalActionTags, getOllamaBaseUrl } from './provider';
+import { LocalAiSettings } from "../types";
+import { ModelMessage, ModelResponse, ToolCall } from "../agent/types";
+
+const DEFAULT_OLLAMA_URL = "http://localhost:11434";
+const DEFAULT_MODEL = "spidey-qwen:latest";
+const DEFAULT_CONTEXT = 4096;
 
 /**
- * Executes a call to a local Ollama instance with optional streaming support
+ * Get the Ollama server URL.
  */
-export async function callOllama(
-  messages: ModelMessage[],
-  localAi: LocalAiSettings,
-  temperature: number = 0.7,
-  maxTokens: number = 600,
-  onChunk?: (chunk: string) => void
-): Promise<ModelResponse> {
-  const targetUrl = normalizeOllamaUrl(localAi.endpointUrl);
-  const isGenerate = targetUrl.endsWith('/api/generate');
-  const model = localAi.modelName || 'qwen3:8b';
+function getOllamaUrl(settings?: LocalAiSettings): string {
+  return (
+    settings?.baseUrl?.replace(/\/+$/, "") ||
+    DEFAULT_OLLAMA_URL
+  );
+}
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 120000);
+/**
+ * Get the configured model.
+ */
+function getOllamaModel(settings?: LocalAiSettings): string {
+  return (
+    settings?.modelName?.trim() ||
+    DEFAULT_MODEL
+  );
+}
 
+/**
+ * Get context size.
+ *
+ * Your Spidey model is configured for 4096.
+ */
+function getContextSize(settings?: LocalAiSettings): number {
+  return settings?.contextSize || DEFAULT_CONTEXT;
+}
+
+/**
+ * Check that Ollama is reachable.
+ */
+export async function checkOllamaConnection(
+  settings?: LocalAiSettings
+): Promise<boolean> {
   try {
-    let body: any;
-    if (isGenerate) {
-      const sysMsg = messages.find((m) => m.role === 'system')?.content || '';
-      const conversation = messages
-        .filter((m) => m.role !== 'system')
-        .map((m) => `${m.role === 'user' ? 'User' : 'Spidey'}: ${m.content}`)
-        .join('\n\n');
+    const response = await fetch(
+      `${getOllamaUrl(settings)}/api/tags`
+    );
 
-      body = {
-        model,
-        system: sysMsg,
-        prompt: `${conversation}\n\nSpidey:`,
-        stream: Boolean(onChunk),
-        options: { temperature, num_predict: maxTokens, num_ctx: 2048 },
-      };
-    } else {
-      body = {
-        model,
-        messages,
-        stream: Boolean(onChunk),
-        options: { temperature, num_predict: maxTokens, num_ctx: 2048 },
-      };
-    }
-
-    const res = await fetch(targetUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeoutId);
-
-    if (!res.ok) {
-      const errText = await res.text().catch(() => '');
-      throw new Error(`Ollama HTTP ${res.status}: ${errText || res.statusText}`);
-    }
-
-    if (onChunk && res.body) {
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder('utf-8');
-      let fullText = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        const chunkStr = decoder.decode(value, { stream: true });
-        const lines = chunkStr.split('\n').filter((l) => l.trim().length > 0);
-        for (const line of lines) {
-          try {
-            const parsed = JSON.parse(line);
-            const token = isGenerate ? parsed.response : parsed.message?.content;
-            if (token) {
-              fullText += token;
-              onChunk(token);
-            }
-          } catch {
-            // Ignore parse errors on partial streaming lines
-          }
-        }
-      }
-
-      const { cleanText, toolCalls } = parseLocalActionTags(fullText);
-      return { content: cleanText, toolCalls };
-    }
-
-    const data = await res.json();
-    const rawContent = data.message?.content || data.response || '';
-    const { cleanText, toolCalls } = parseLocalActionTags(rawContent);
-
-    return { content: cleanText, toolCalls, raw: data };
-  } catch (err: any) {
-    clearTimeout(timeoutId);
-    if (err.name === 'AbortError') {
-      throw new Error('Local Ollama server timed out after 35 seconds.');
-    }
-    if (err.message && (err.message.includes('Failed to fetch') || err.name === 'TypeError')) {
-      throw new Error(
-        `Unable to reach local Ollama at ${targetUrl}. Ensure Ollama is running ('ollama serve') with OLLAMA_ORIGINS="*".`
-      );
-    }
-    throw err;
+    return response.ok;
+  } catch {
+    return false;
   }
 }
 
 /**
- * Checks if Ollama is running and lists models
+ * Existing parts of Spidey use pingOllama().
+ *
+ * Keep this function for compatibility.
  */
-export async function pingOllama(localAi: LocalAiSettings): Promise<{ success: boolean; message: string }> {
-  const baseUrl = getOllamaBaseUrl(localAi.endpointUrl);
+export async function pingOllama(
+  settings?: LocalAiSettings
+): Promise<{ success: boolean; message: string }> {
   try {
-    const res = await fetch(`${baseUrl}/api/tags`, {
-      method: 'GET',
-      headers: { 'Content-Type': 'application/json' },
-    });
-    if (res.ok) {
-      const data = await res.json();
-      const models: string[] = (data.models || []).map((m: any) => m.name || m.model || '');
-      const reqModel = localAi.modelName || 'qwen3:8b';
-      const exists = models.some((m) => m.toLowerCase().includes(reqModel.toLowerCase().split(':')[0]));
+    const baseUrl = getOllamaUrl(settings);
+
+    const response = await fetch(
+      `${baseUrl}/api/tags`
+    );
+
+    if (!response.ok) {
       return {
-        success: true,
-        message: exists
-          ? `Connected to Ollama! Model "${reqModel}" found.`
-          : `Ollama is active. Available: ${models.slice(0, 3).join(', ') || 'none'}.`,
+        success: false,
+        message: `Ollama returned HTTP ${response.status}.`,
       };
     }
-    return { success: false, message: `Ollama replied with status ${res.status}` };
-  } catch (err: any) {
-    return { success: false, message: err.message || 'Cannot connect to Ollama' };
+
+    const data = await response.json();
+
+    if (!Array.isArray(data.models)) {
+      return {
+        success: false,
+        message: "Ollama responded, but the model list was invalid.",
+      };
+    }
+
+    const configuredModel = getOllamaModel(settings);
+
+    const modelExists = data.models.some(
+      (model: { name?: string }) =>
+        model.name === configuredModel ||
+        model.name === `${configuredModel}:latest`
+    );
+
+    if (!modelExists) {
+      const availableModels = data.models
+        .map((model: { name?: string }) => model.name)
+        .filter(Boolean)
+        .join(", ");
+
+      return {
+        success: false,
+        message:
+          `Ollama is running, but "${configuredModel}" was not found. ` +
+          `Available models: ${availableModels}`,
+      };
+    }
+
+    return {
+      success: true,
+      message: `Connected to ${configuredModel}.`,
+    };
+  } catch (error: any) {
+    return {
+      success: false,
+      message:
+        error?.message ||
+        "Could not connect to Ollama.",
+    };
   }
+}
+
+/**
+ * Convert our internal messages into Ollama messages.
+ */
+function convertMessages(messages: ModelMessage[]) {
+  return messages.map((message) => ({
+    role: message.role,
+    content: message.content,
+  }));
+}
+
+/**
+ * Parse Spidey's action tags.
+ *
+ * Example:
+ *
+ * [[ACTION:create_task:{"title":"Study networking"}]]
+ */
+export function parseActionTags(text: string): ToolCall[] {
+  const toolCalls: ToolCall[] = [];
+
+  const regex =
+    /\[\[ACTION:([a-zA-Z0-9_-]+):(\{[\s\S]*?\})\]\]/g;
+
+  let match: RegExpExecArray | null;
+
+  while ((match = regex.exec(text)) !== null) {
+    const toolName = match[1];
+    const rawArguments = match[2];
+
+    try {
+      const args = JSON.parse(rawArguments);
+
+      toolCalls.push({
+        toolName,
+        arguments: args,
+      });
+    } catch (error) {
+      console.warn(
+        `Spidey could not parse action arguments for "${toolName}".`,
+        error
+      );
+    }
+  }
+
+  return toolCalls;
+}
+
+/**
+ * Call Ollama.
+ *
+ * IMPORTANT:
+ * The function signature matches modelRouter.ts:
+ *
+ * messages
+ * settings
+ * temperature
+ * maxTokens
+ * onChunk
+ */
+export async function callOllama(
+  messages: ModelMessage[],
+  settings: LocalAiSettings,
+  temperature: number = 0.7,
+  maxTokens?: number,
+  onChunk?: (chunk: string) => void
+): Promise<ModelResponse> {
+  const baseUrl = getOllamaUrl(settings);
+  const model = getOllamaModel(settings);
+
+  const response = await fetch(
+    `${baseUrl}/api/chat`,
+    {
+      method: "POST",
+
+      headers: {
+        "Content-Type": "application/json",
+      },
+
+      body: JSON.stringify({
+        model,
+
+        messages: convertMessages(messages),
+
+        stream: Boolean(onChunk),
+
+        options: {
+          temperature,
+
+          num_ctx: getContextSize(settings),
+
+          ...(maxTokens
+            ? {
+                num_predict: maxTokens,
+              }
+            : {}),
+        },
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    const errorText = await response.text();
+
+    throw new Error(
+      `Ollama request failed (${response.status}): ${errorText}`
+    );
+  }
+
+  /**
+   * Streaming mode.
+   */
+  if (onChunk && response.body) {
+    const reader = response.body.getReader();
+
+    const decoder = new TextDecoder();
+
+    let buffer = "";
+    let fullContent = "";
+
+    while (true) {
+      const { value, done } =
+        await reader.read();
+
+      if (done) {
+        break;
+      }
+
+      buffer += decoder.decode(
+        value,
+        { stream: true }
+      );
+
+      const lines =
+        buffer.split("\n");
+
+      buffer =
+        lines.pop() || "";
+
+      for (const line of lines) {
+        const trimmed =
+          line.trim();
+
+        if (!trimmed) {
+          continue;
+        }
+
+        try {
+          const data = JSON.parse(trimmed);
+
+          const text =
+            data?.message?.content || "";
+
+          if (text) {
+            fullContent += text;
+
+            onChunk(text);
+          }
+        } catch {
+          /**
+           * Ignore incomplete JSON.
+           */
+        }
+      }
+    }
+
+    /**
+     * Process final buffered JSON.
+     */
+    if (buffer.trim()) {
+      try {
+        const data =
+          JSON.parse(buffer.trim());
+
+        const text =
+          data?.message?.content || "";
+
+        if (text) {
+          fullContent += text;
+
+          onChunk(text);
+        }
+      } catch {
+        /**
+         * Ignore incomplete final JSON.
+         */
+      }
+    }
+
+    return {
+      content: fullContent,
+
+      /**
+       * ALWAYS return an array.
+       *
+       * This fixes:
+       *
+       * modelResponse.toolCalls is not iterable
+       */
+      toolCalls:
+        parseActionTags(fullContent),
+    };
+  }
+
+  /**
+   * Non-streaming mode.
+   */
+  const data = await response.json();
+
+  const content =
+    data?.message?.content || "";
+
+  return {
+    content,
+
+    /**
+     * ALWAYS return an array.
+     */
+    toolCalls:
+      parseActionTags(content),
+  };
 }
