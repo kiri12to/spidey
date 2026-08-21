@@ -1,6 +1,59 @@
 import { spideyApi } from '../services/spideyApi';
 import { ToolResult } from '../agent/types';
 
+/**
+ * Finds a task from natural language without silently choosing a weak match.
+ * Exact matches win. Otherwise, the title must contain the meaningful words
+ * from the user's query. If several tasks are equally plausible, we refuse to
+ * guess and tell Spidey to ask the user for clarification.
+ */
+function findTaskSafely(query: string) {
+  const normalized = query.toLowerCase().trim();
+  if (!normalized) return { task: undefined, ambiguous: false };
+
+  const tasks = spideyApi.getTasks();
+
+  const exact = tasks.find((task) => task.title.toLowerCase().trim() === normalized);
+  if (exact) return { task: exact, ambiguous: false };
+
+  const words = normalized
+    .split(/\s+/)
+    .map((word) => word.replace(/[^a-z0-9]/g, ''))
+    .filter((word) => word.length >= 2);
+
+  if (words.length === 0) return { task: undefined, ambiguous: false };
+
+  const scored = tasks
+    .map((task) => {
+      const title = task.title.toLowerCase();
+      const matchedWords = words.filter((word) => title.includes(word));
+      return {
+        task,
+        score: matchedWords.length / words.length,
+        matchedWords: matchedWords.length,
+      };
+    })
+    .filter((entry) => entry.matchedWords > 0)
+    .sort((a, b) => b.score - a.score || b.matchedWords - a.matchedWords);
+
+  if (scored.length === 0 || scored[0].score < 0.5) {
+    return { task: undefined, ambiguous: false };
+  }
+
+  const best = scored[0];
+  const second = scored[1];
+  const ambiguous = Boolean(second && second.score === best.score);
+
+  return { task: ambiguous ? undefined : best.task, ambiguous };
+}
+
+function taskNotFoundMessage(query: string, ambiguous: boolean): string {
+  if (ambiguous) {
+    return `I found multiple tasks that could match "${query}". Tell me which one you mean.`;
+  }
+  return `I couldn't find a task matching "${query}".`;
+}
+
 export function executeTaskTools(toolName: string, args: Record<string, any>): ToolResult | null {
   switch (toolName) {
     case 'create_task': {
@@ -45,19 +98,25 @@ export function executeTaskTools(toolName: string, args: Record<string, any>): T
       const query = args.query || args.title || args.task;
       if (!query) return { toolName, success: false, message: 'Missing task query' };
 
-      const matched = spideyApi.findTaskByTitle(query);
-      if (!matched) return { toolName, success: false, message: `Task matching "${query}" not found` };
+      const match = findTaskSafely(query);
+      if (!match.task) {
+        return { toolName, success: false, message: taskNotFoundMessage(query, match.ambiguous) };
+      }
 
-      const updated = spideyApi.completeTask(matched.id, true);
-      spideyApi.setMindState('celebrating', `Done: ${matched.title}`);
+      const updated = spideyApi.completeTask(match.task.id, true);
+      if (!updated) {
+        return { toolName, success: false, message: `I couldn't complete "${match.task.title}".` };
+      }
+
+      spideyApi.setMindState('celebrating', `Done: ${match.task.title}`);
 
       return {
         toolName,
         success: true,
-        message: `Completed "${matched.title}"`,
+        message: `Completed "${match.task.title}"`,
         data: updated,
         actionType: 'complete_task',
-        actionDetails: matched.title,
+        actionDetails: match.task.title,
       };
     }
 
@@ -65,16 +124,23 @@ export function executeTaskTools(toolName: string, args: Record<string, any>): T
       const query = args.query || args.title || args.task;
       if (!query) return { toolName, success: false, message: 'Missing task query' };
 
-      const matched = spideyApi.findTaskByTitle(query);
-      if (!matched) return { toolName, success: false, message: `Task matching "${query}" not found` };
+      const match = findTaskSafely(query);
+      if (!match.task) {
+        return { toolName, success: false, message: taskNotFoundMessage(query, match.ambiguous) };
+      }
 
-      spideyApi.deleteTask(matched.id);
+      const deleted = spideyApi.deleteTask(match.task.id);
+      if (!deleted) {
+        return { toolName, success: false, message: `I couldn't delete "${match.task.title}".` };
+      }
+
       return {
         toolName,
         success: true,
-        message: `Deleted "${matched.title}"`,
+        message: `Deleted "${match.task.title}"`,
+        data: { deletedTask: match.task },
         actionType: 'delete_task',
-        actionDetails: matched.title,
+        actionDetails: match.task.title,
       };
     }
 
