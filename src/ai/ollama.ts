@@ -3,7 +3,8 @@ import { ModelMessage, ModelResponse } from '../agent/types';
 import { normalizeOllamaUrl, parseLocalActionTags, getOllamaBaseUrl } from './provider';
 
 /**
- * Executes a call to a local Ollama instance with optional streaming support
+ * Executes a call to a local Ollama instance with optional streaming support.
+ * Defaults are tuned for the user's Spidey Qwen model on a 4 GB GPU / 16 GB RAM PC.
  */
 export async function callOllama(
   messages: ModelMessage[],
@@ -14,13 +15,15 @@ export async function callOllama(
 ): Promise<ModelResponse> {
   const targetUrl = normalizeOllamaUrl(localAi.endpointUrl);
   const isGenerate = targetUrl.endsWith('/api/generate');
-  const model = localAi.modelName || 'qwen3:8b';
+  const model = localAi.modelName || 'spidey-qwen';
+  const contextSize = 4096;
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 120000);
 
   try {
     let body: any;
+
     if (isGenerate) {
       const sysMsg = messages.find((m) => m.role === 'system')?.content || '';
       const conversation = messages
@@ -33,14 +36,22 @@ export async function callOllama(
         system: sysMsg,
         prompt: `${conversation}\n\nSpidey:`,
         stream: Boolean(onChunk),
-        options: { temperature, num_predict: maxTokens, num_ctx: 2048 },
+        options: {
+          temperature,
+          num_predict: maxTokens,
+          num_ctx: contextSize,
+        },
       };
     } else {
       body = {
         model,
         messages,
         stream: Boolean(onChunk),
-        options: { temperature, num_predict: maxTokens, num_ctx: 2048 },
+        options: {
+          temperature,
+          num_predict: maxTokens,
+          num_ctx: contextSize,
+        },
       };
     }
 
@@ -62,13 +73,18 @@ export async function callOllama(
       const reader = res.body.getReader();
       const decoder = new TextDecoder('utf-8');
       let fullText = '';
+      let pending = '';
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        const chunkStr = decoder.decode(value, { stream: true });
-        const lines = chunkStr.split('\n').filter((l) => l.trim().length > 0);
+
+        pending += decoder.decode(value, { stream: true });
+        const lines = pending.split('\n');
+        pending = lines.pop() || '';
+
         for (const line of lines) {
+          if (!line.trim()) continue;
           try {
             const parsed = JSON.parse(line);
             const token = isGenerate ? parsed.response : parsed.message?.content;
@@ -77,8 +93,21 @@ export async function callOllama(
               onChunk(token);
             }
           } catch {
-            // Ignore parse errors on partial streaming lines
+            // Keep incomplete JSON in the pending buffer instead of losing it.
           }
+        }
+      }
+
+      if (pending.trim()) {
+        try {
+          const parsed = JSON.parse(pending);
+          const token = isGenerate ? parsed.response : parsed.message?.content;
+          if (token) {
+            fullText += token;
+            onChunk(token);
+          }
+        } catch {
+          // Ignore a malformed final chunk.
         }
       }
 
@@ -93,40 +122,47 @@ export async function callOllama(
     return { content: cleanText, toolCalls, raw: data };
   } catch (err: any) {
     clearTimeout(timeoutId);
+
     if (err.name === 'AbortError') {
-      throw new Error('Local Ollama server timed out after 35 seconds.');
+      throw new Error('Local Ollama server timed out after 120 seconds.');
     }
+
     if (err.message && (err.message.includes('Failed to fetch') || err.name === 'TypeError')) {
       throw new Error(
-        `Unable to reach local Ollama at ${targetUrl}. Ensure Ollama is running ('ollama serve') with OLLAMA_ORIGINS="*".`
+        `Unable to reach local Ollama at ${targetUrl}. Make sure Ollama is running and that your Spidey app is allowed to connect to it.`
       );
     }
+
     throw err;
   }
 }
 
 /**
- * Checks if Ollama is running and lists models
+ * Checks if Ollama is running and lists models.
  */
 export async function pingOllama(localAi: LocalAiSettings): Promise<{ success: boolean; message: string }> {
   const baseUrl = getOllamaBaseUrl(localAi.endpointUrl);
+
   try {
     const res = await fetch(`${baseUrl}/api/tags`, {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
+
     if (res.ok) {
       const data = await res.json();
       const models: string[] = (data.models || []).map((m: any) => m.name || m.model || '');
-      const reqModel = localAi.modelName || 'qwen3:8b';
-      const exists = models.some((m) => m.toLowerCase().includes(reqModel.toLowerCase().split(':')[0]));
+      const reqModel = localAi.modelName || 'spidey-qwen';
+      const exists = models.some((m) => m.toLowerCase() === reqModel.toLowerCase());
+
       return {
         success: true,
         message: exists
           ? `Connected to Ollama! Model "${reqModel}" found.`
-          : `Ollama is active. Available: ${models.slice(0, 3).join(', ') || 'none'}.`,
+          : `Ollama is active. Available: ${models.slice(0, 5).join(', ') || 'none'}.`,
       };
     }
+
     return { success: false, message: `Ollama replied with status ${res.status}` };
   } catch (err: any) {
     return { success: false, message: err.message || 'Cannot connect to Ollama' };
