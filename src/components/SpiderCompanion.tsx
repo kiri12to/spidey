@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { LocalAiSettings } from '../types';
 import { generateCompanionProactiveLine } from '../services/aiAssistant';
+import { spideyApi, SpideyMindState } from '../services/spideyApi';
 
 export interface SpiderCompanionProps {
   enabled: boolean;
@@ -19,7 +20,8 @@ type SpiderState =
   | 'resting'
   | 'crawling'
   | 'following_cursor'
-  | 'hanging'
+  | 'thinking'
+  | 'celebrating'
   | 'dragged';
 
 interface Point {
@@ -46,15 +48,7 @@ export const SpiderCompanion: React.FC<SpiderCompanionProps> = ({
   const [spiderState, setSpiderState] = useState<SpiderState>('resting');
   const [speechBubble, setSpeechBubble] = useState<string | null>(null);
   const [eyeGlint, setEyeGlint] = useState<boolean>(false);
-
-  // Hanging Silk Thread coordinates (anchor at top of screen to spider's spinnerets)
-  const [silkLine, setSilkLine] = useState<{
-    anchorX: number;
-    anchorY: number;
-    spinX: number;
-    spinY: number;
-    curveOffset: number;
-  } | null>(null);
+  const [mindState, setMindState] = useState<SpideyMindState>('idle');
 
   // Core Simulation State in Refs for 60fps jitter-free physics
   const posRef = useRef<Point>({ x: 140, y: 160 });
@@ -74,21 +68,30 @@ export const SpiderCompanion: React.FC<SpiderCompanionProps> = ({
   const lastUserInteractionTimeRef = useRef<number>(Date.now());
   const lastIdleSpeechTimeRef = useRef<number>(Date.now());
 
-  // Hanging spring physics
-  const hangingRef = useRef<{
-    anchorX: number;
-    targetY: number;
-    currentY: number;
-    vy: number;
-    bobPhase: number;
-    hangDuration: number;
-    startTime: number;
-  } | null>(null);
-
   // Sync state ref
   useEffect(() => {
     spiderStateRef.current = spiderState;
   }, [spiderState]);
+
+  // Subscribe to Spidey Mind State in spideyApi
+  useEffect(() => {
+    return spideyApi.subscribe(() => {
+      const mind = spideyApi.getMindState();
+      setMindState(mind.state);
+
+      if (mind.state === 'thinking') {
+        setSpiderState('thinking');
+        setEyeGlint(true);
+      } else if (mind.state === 'celebrating') {
+        setSpiderState('celebrating');
+        setEyeGlint(true);
+        setTimeout(() => setEyeGlint(false), 2000);
+      } else if (mind.state === 'speaking') {
+        setEyeGlint(true);
+        setTimeout(() => setEyeGlint(false), 1200);
+      }
+    });
+  }, []);
 
   // Window mouse move & keydown listener for idle detection
   useEffect(() => {
@@ -111,51 +114,16 @@ export const SpiderCompanion: React.FC<SpiderCompanionProps> = ({
     };
   }, []);
 
-  // Pick random target location on screen bounds with safe margins
+  // Pick smooth target location on screen bounds with safe margins
   const pickNewRoamTarget = useCallback(() => {
     const margin = 80;
-    const w = window.innerWidth;
-    const h = window.innerHeight;
+    const w = typeof window !== 'undefined' ? window.innerWidth : 1200;
+    const h = typeof window !== 'undefined' ? window.innerHeight : 800;
 
-    const roll = Math.random();
-    let tx: number, ty: number;
-
-    if (roll < 0.25) {
-      // Near top bar / web drop point
-      tx = margin + Math.random() * (w - margin * 2);
-      ty = 30 + Math.random() * 60;
-    } else if (roll < 0.5) {
-      // Right edge / sidebar
-      tx = w - margin - Math.random() * 60;
-      ty = margin + Math.random() * (h - margin * 2);
-    } else if (roll < 0.75) {
-      // Left edge
-      tx = margin + Math.random() * 60;
-      ty = margin + Math.random() * (h - margin * 2);
-    } else {
-      // Free floor roam
-      tx = margin + Math.random() * (w - margin * 2);
-      ty = margin + Math.random() * (h - margin * 2);
-    }
+    const tx = margin + Math.random() * (w - margin * 2);
+    const ty = margin + Math.random() * (h - margin * 2);
 
     targetPosRef.current = { x: tx, y: ty };
-  }, []);
-
-  // Hanging silk drop routine
-  const startHangingDrop = useCallback((anchorX: number, targetDropY: number) => {
-    hangingRef.current = {
-      anchorX,
-      targetY: targetDropY,
-      currentY: 0,
-      vy: 0,
-      bobPhase: 0,
-      hangDuration: 4000 + Math.random() * 4000,
-      startTime: Date.now(),
-    };
-    posRef.current = { x: anchorX, y: 0 };
-    angleRef.current = Math.PI; // Hanging upside down
-    setAngle(Math.PI);
-    setSpiderState('hanging');
   }, []);
 
   // Spider Speech Lines (Supports AI dynamic generation or manual customText)
@@ -175,7 +143,7 @@ export const SpiderCompanion: React.FC<SpiderCompanionProps> = ({
 
     setTimeout(() => {
       setEyeGlint(false);
-    }, 900);
+    }, 1200);
   }, [userName, localAi]);
 
   // React to proactive trigger events (e.g. task completed or timer finished)
@@ -192,10 +160,10 @@ export const SpiderCompanion: React.FC<SpiderCompanionProps> = ({
     let stateTimer = 0;
 
     const loop = (time: number) => {
-      const dt = Math.min((time - lastTime) / 1000, 0.1);
+      const dt = Math.min((time - lastTime) / 1000, 0.05); // cap dt to avoid jump when tab switches
       lastTime = time;
       stateTimer += dt;
-      legFrameRef.current += dt * 16;
+      legFrameRef.current += dt * 14;
 
       const curState = spiderStateRef.current;
       const currentPos = posRef.current;
@@ -204,8 +172,8 @@ export const SpiderCompanion: React.FC<SpiderCompanionProps> = ({
       // Check Idle Time for Proactive Spidey Speech
       const now = Date.now();
       if (
-        now - lastUserInteractionTimeRef.current > 50000 && // 50s user idle
-        now - lastIdleSpeechTimeRef.current > 90000 && // at least 90s between unprompted lines
+        now - lastUserInteractionTimeRef.current > 45000 && // 45s user idle
+        now - lastIdleSpeechTimeRef.current > 75000 && // at least 75s between unprompted lines
         curState === 'resting'
       ) {
         lastIdleSpeechTimeRef.current = now;
@@ -219,86 +187,50 @@ export const SpiderCompanion: React.FC<SpiderCompanionProps> = ({
           y: mouse.y - dragOffsetRef.current.y,
         };
         setPos({ ...posRef.current });
-        setSilkLine(null);
         animId = requestAnimationFrame(loop);
         return;
       }
 
-      // 2. HANGING STATE (Silk Drop with Spring Physics)
-      if (curState === 'hanging' && hangingRef.current) {
-        const h = hangingRef.current;
-        const elapsed = Date.now() - h.startTime;
-
-        // Spring acceleration towards target Y
-        const dy = h.targetY - h.currentY;
-        const springForce = dy * 9.0;
-        const damping = -h.vy * 4.5;
-        const gravity = 40.0;
-        const totalAy = springForce + damping + gravity;
-
-        h.vy += totalAy * dt;
-        h.currentY += h.vy * dt;
-        h.bobPhase += dt * 3.5;
-
-        // Slight horizontal pendulum sway while hanging
-        const sway = Math.sin(h.bobPhase) * 12;
-
-        posRef.current = {
-          x: h.anchorX + sway,
-          y: Math.max(10, h.currentY),
-        };
-        angleRef.current = Math.PI + Math.sin(h.bobPhase * 0.8) * 0.15; // Upside down facing floor
-
-        setPos({ ...posRef.current });
-        setAngle(angleRef.current);
-
-        // Update silk render coords
-        setSilkLine({
-          anchorX: h.anchorX,
-          anchorY: 0,
-          spinX: posRef.current.x,
-          spinY: posRef.current.y - sizePx * 0.35,
-          curveOffset: Math.sin(h.bobPhase) * 6,
-        });
-
-        // Check if finished hanging
-        if (elapsed > h.hangDuration) {
-          hangingRef.current = null;
-          setSilkLine(null);
-          targetPosRef.current = {
-            x: posRef.current.x + (Math.random() - 0.5) * 200,
-            y: posRef.current.y + 40,
-          };
-          setSpiderState('crawling');
+      // 2. THINKING STATE (Paused, observant, pulsing)
+      if (curState === 'thinking') {
+        velRef.current = { x: 0, y: 0 };
+        if (stateTimer > 4.0) {
+          setSpiderState('resting');
           stateTimer = 0;
         }
-
         animId = requestAnimationFrame(loop);
         return;
       }
 
-      // Clear silk line if not hanging
-      if (silkLine) {
-        setSilkLine(null);
+      // 3. CELEBRATING STATE (Cheery little spin)
+      if (curState === 'celebrating') {
+        angleRef.current += dt * 8.0;
+        setAngle(angleRef.current);
+        if (stateTimer > 1.5) {
+          setSpiderState('resting');
+          stateTimer = 0;
+        }
+        animId = requestAnimationFrame(loop);
+        return;
       }
 
-      // 3. CURSOR PROXIMITY CHECK (Curious crawl toward nearby cursor if quiet)
+      // 4. CURSOR PROXIMITY CHECK (Curious crawl toward nearby cursor if quiet)
       const distToMouse = Math.hypot(mouse.x - currentPos.x, mouse.y - currentPos.y);
-      const isMouseRecent = Date.now() - lastMouseMoveTimeRef.current < 2500;
+      const isMouseRecent = Date.now() - lastMouseMoveTimeRef.current < 2000;
 
-      if (curState !== 'resting' && isMouseRecent && distToMouse < 220 && distToMouse > 65) {
+      if (curState !== 'resting' && isMouseRecent && distToMouse < 220 && distToMouse > 70) {
         if (curState !== 'following_cursor') {
           setSpiderState('following_cursor');
         }
         targetPosRef.current = {
-          x: mouse.x + (Math.sin(time * 0.002) * 45),
-          y: mouse.y + (Math.cos(time * 0.002) * 45),
+          x: mouse.x + Math.sin(time * 0.002) * 40,
+          y: mouse.y + Math.cos(time * 0.002) * 40,
         };
       }
 
-      // 4. AUTONOMOUS STATE TRANSITIONS
+      // 5. AUTONOMOUS STATE TRANSITIONS
       if (curState === 'resting') {
-        if (stateTimer > 3.5 + Math.random() * 4.0) {
+        if (stateTimer > 3.0 + Math.random() * 4.0) {
           // Transition smoothly to a new roaming destination
           stateTimer = 0;
           pickNewRoamTarget();
@@ -309,7 +241,7 @@ export const SpiderCompanion: React.FC<SpiderCompanionProps> = ({
         const dy = targetPosRef.current.y - currentPos.y;
         const dist = Math.hypot(dx, dy);
 
-        if (dist < 20 || stateTimer > 10.0) {
+        if (dist < 25 || stateTimer > 8.0) {
           // Reached target smoothly
           setSpiderState('resting');
           velRef.current = { x: 0, y: 0 };
@@ -321,26 +253,28 @@ export const SpiderCompanion: React.FC<SpiderCompanionProps> = ({
           while (diffAngle < -Math.PI) diffAngle += Math.PI * 2;
           while (diffAngle > Math.PI) diffAngle -= Math.PI * 2;
 
-          angleRef.current += diffAngle * Math.min(dt * 6.0, 1.0);
+          angleRef.current += diffAngle * Math.min(dt * 5.0, 1.0);
           setAngle(angleRef.current);
 
           // Crawl acceleration
-          const speed = curState === 'following_cursor' ? 100 : 75;
+          const speed = curState === 'following_cursor' ? 85 : 65;
           const moveAngle = angleRef.current - Math.PI / 2;
           const targetVx = Math.cos(moveAngle) * speed;
           const targetVy = Math.sin(moveAngle) * speed;
 
-          velRef.current.x += (targetVx - velRef.current.x) * dt * 5.0;
-          velRef.current.y += (targetVy - velRef.current.y) * dt * 5.0;
+          velRef.current.x += (targetVx - velRef.current.x) * dt * 4.0;
+          velRef.current.y += (targetVy - velRef.current.y) * dt * 4.0;
 
           // Apply continuous step
           posRef.current.x += velRef.current.x * dt;
           posRef.current.y += velRef.current.y * dt;
 
           // Boundary clamp with margin
-          const margin = 24;
-          posRef.current.x = Math.max(margin, Math.min(window.innerWidth - margin, posRef.current.x));
-          posRef.current.y = Math.max(margin, Math.min(window.innerHeight - margin, posRef.current.y));
+          const margin = 30;
+          const maxW = typeof window !== 'undefined' ? window.innerWidth - margin : 1200;
+          const maxH = typeof window !== 'undefined' ? window.innerHeight - margin : 800;
+          posRef.current.x = Math.max(margin, Math.min(maxW, posRef.current.x));
+          posRef.current.y = Math.max(margin, Math.min(maxH, posRef.current.y));
 
           setPos({ ...posRef.current });
         }
@@ -351,7 +285,7 @@ export const SpiderCompanion: React.FC<SpiderCompanionProps> = ({
 
     animId = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(animId);
-  }, [pickNewRoamTarget, sizePx, startHangingDrop, silkLine, triggerSpiderSpeech]);
+  }, [pickNewRoamTarget, sizePx, triggerSpiderSpeech]);
 
   // Handle Drag Start
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -362,8 +296,6 @@ export const SpiderCompanion: React.FC<SpiderCompanionProps> = ({
       y: e.clientY - posRef.current.y,
     };
     setSpiderState('dragged');
-    setSilkLine(null);
-    hangingRef.current = null;
   };
 
   const handleTouchStart = (e: React.TouchEvent) => {
@@ -376,8 +308,6 @@ export const SpiderCompanion: React.FC<SpiderCompanionProps> = ({
         y: t.clientY - posRef.current.y,
       };
       setSpiderState('dragged');
-      setSilkLine(null);
-      hangingRef.current = null;
     }
   };
 
@@ -385,7 +315,7 @@ export const SpiderCompanion: React.FC<SpiderCompanionProps> = ({
     if (isDraggingRef.current) {
       isDraggingRef.current = false;
       setSpiderState('resting');
-      triggerSpiderSpeech(`Got my eyes on the perimeter, ${userName}.`);
+      triggerSpiderSpeech(`Watching your perimeter.`);
     }
   };
 
@@ -404,38 +334,16 @@ export const SpiderCompanion: React.FC<SpiderCompanionProps> = ({
       window.removeEventListener('mouseup', handleMouseUp);
       window.removeEventListener('touchend', handleTouchEnd);
     };
-  }, [userName]);
+  }, []);
 
   // Compute Animated Leg Points based on current gait cycle
   const legCycle = legFrameRef.current;
   const isMoving = spiderState === 'crawling' || spiderState === 'following_cursor';
-  const legAmp = isMoving ? 7 : 1.5;
+  const legAmp = isMoving ? 6.5 : 1.2;
 
   return (
     <>
-      {/* 1. Hanging Silk Thread (SVG) */}
-      {silkLine && (
-        <svg className="fixed inset-0 pointer-events-none z-[80] w-full h-full">
-          <path
-            d={`M ${silkLine.anchorX} ${silkLine.anchorY} Q ${
-              (silkLine.anchorX + silkLine.spinX) / 2 + silkLine.curveOffset
-            } ${(silkLine.anchorY + silkLine.spinY) / 2} ${silkLine.spinX} ${silkLine.spinY}`}
-            stroke="rgba(255, 255, 255, 0.75)"
-            strokeWidth="1.2"
-            fill="none"
-            strokeDasharray="2 1"
-          />
-          <circle
-            cx={(silkLine.anchorX + silkLine.spinX) / 2}
-            cy={(silkLine.anchorY + silkLine.spinY) / 2}
-            r="1.5"
-            fill="#ffffff"
-            className="animate-ping opacity-60"
-          />
-        </svg>
-      )}
-
-      {/* 2. Interactive Noir Spider Entity */}
+      {/* Interactive Noir Spider Entity */}
       <div
         id="spidey-companion"
         onMouseDown={handleMouseDown}
@@ -451,7 +359,7 @@ export const SpiderCompanion: React.FC<SpiderCompanionProps> = ({
           height: `${sizePx}px`,
           cursor: isDraggingRef.current ? 'grabbing' : 'grab',
         }}
-        className="fixed top-0 left-0 z-[90] select-none transition-transform duration-75 ease-out group"
+        className="fixed top-0 left-0 z-[90] select-none group"
         title="Spidey — Click to talk or drag around"
       >
         {/* SVG Detailed Noir Spider Anatomy */}
@@ -567,3 +475,4 @@ export const SpiderCompanion: React.FC<SpiderCompanionProps> = ({
     </>
   );
 };
+

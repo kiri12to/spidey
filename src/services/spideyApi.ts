@@ -77,6 +77,8 @@ export interface CalendarDaySummary {
   hasOverdue: boolean;
 }
 
+export type SpideyMindState = 'idle' | 'thinking' | 'speaking' | 'focusing' | 'celebrating' | 'curious';
+
 type Listener = () => void;
 
 class SpideyApiService {
@@ -84,6 +86,14 @@ class SpideyApiService {
   private groups: TaskGroup[] = [];
   private notes: Note[] = [];
   private memories: string[] = [];
+  private mindState: {
+    state: SpideyMindState;
+    details?: string;
+    timestamp: number;
+  } = {
+    state: 'idle',
+    timestamp: Date.now(),
+  };
   private timer: TimerState = {
     taskId: null,
     taskTitle: null,
@@ -537,7 +547,71 @@ class SpideyApiService {
   }
 
   // ==========================================
-  // 6. CALENDAR DATA AGGREGATION
+  // 6. MIND & BEHAVIOR OBSERVATIONS
+  // ==========================================
+
+  public getMindState() {
+    return { ...this.mindState };
+  }
+
+  public setMindState(state: SpideyMindState, details?: string) {
+    this.mindState = {
+      state,
+      details,
+      timestamp: Date.now(),
+    };
+    this.notify();
+  }
+
+  /**
+   * Lightweight pattern-recognition layer:
+   * Analyzes tasks and workflow history to compute observant insights about Anas/Kiri.
+   */
+  public getBehaviorInsights(): string[] {
+    const insights: string[] = [];
+    const now = new Date();
+    const currentHour = now.getHours();
+
+    // 1. Completion rate / momentum
+    const completedTasks = this.tasks.filter((t) => t.completed);
+    const overdueTasks = this.getOverdueTasks();
+
+    if (completedTasks.length >= 3 && overdueTasks.length === 0) {
+      insights.push('Has maintained solid execution momentum with zero overdue tasks lingering.');
+    } else if (overdueTasks.length >= 3) {
+      insights.push(`Has ${overdueTasks.length} tasks currently overdue carrying over.`);
+    }
+
+    // 2. Workout & Study frequency
+    const workoutTasks = this.tasks.filter((t) => 
+      t.title.toLowerCase().includes('workout') || 
+      t.title.toLowerCase().includes('press') || 
+      t.title.toLowerCase().includes('gym') ||
+      t.groupId === 'group-workout'
+    );
+    if (workoutTasks.length > 0) {
+      const completedWorkouts = workoutTasks.filter((t) => t.completed).length;
+      insights.push(`Active workout habits tracked (${completedWorkouts}/${workoutTasks.length} sessions completed).`);
+    }
+
+    const studyTasks = this.tasks.filter((t) =>
+      t.groupId === 'group-study' ||
+      /math|physics|biology|english|sre|code|programming|algorithm|esp32|arduino/i.test(t.title)
+    );
+    if (studyTasks.length > 0) {
+      insights.push(`Consistent study & engineering topics in rotation (STEM, SRE prep, maker hardware, advanced language).`);
+    }
+
+    // 3. Time pattern
+    if (currentHour >= 23 || currentHour < 5) {
+      insights.push('Currently working during a late-night / midnight focus block.');
+    }
+
+    return insights;
+  }
+
+  // ==========================================
+  // 7. CALENDAR DATA AGGREGATION
   // ==========================================
 
   /**

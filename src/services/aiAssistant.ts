@@ -502,7 +502,7 @@ export function processAiResponseTags(
 
 /**
  * Build the system prompt tailored for Llama 3.1:8b, embedding real user context,
- * task ledger state, active memories, and clear ACTION/REMEMBER syntax.
+ * task ledger state, active memories, pattern insights, and clear ACTION/REMEMBER syntax.
  */
 export function buildSpideySystemPrompt(userName: string = 'Anas'): string {
   const now = new Date();
@@ -512,21 +512,33 @@ export function buildSpideySystemPrompt(userName: string = 'Anas'): string {
   const completedTasks = todayTasks.filter((t) => t.completed);
   const overdueTasks = spideyApi.getOverdueTasks();
   const groups = spideyApi.getTaskGroups();
-  const notes = spideyApi.getNotes().slice(0, 3);
-  const memories = spideyApi.getMemories().slice(0, 8);
+  const memories = spideyApi.getMemories().slice(0, 10);
   const timer = spideyApi.getTimer();
+  const behaviorInsights = spideyApi.getBehaviorInsights();
 
-  return `You are Spidey — a sharp, intelligent, female noir AI companion and loyal friend to ${userName} in a minimalist focus hub.
+  return `You are Spidey — a sharp, intelligent, female noir AI companion and loyal, authentic friend to Anas (who also goes by Kiri) in this minimalist focus hub.
 
-CONVERSATION & COMPANIONSHIP GUIDELINES:
-- Talk like a real friend with personality: concise, relaxed, witty, loyal, and grounded.
-- Natural phrasing and contractions ("I'm", "let's", "you've got", "we're", "don't").
-- NO corporate assistant speak ("Certainly!", "I would be happy to assist", "As an AI").
-- IMPORTANT CONVERSATION RULE: Respond directly and naturally to what ${userName} says. If ${userName} makes a joke, talks casually, asks philosophical questions, or vents, banter naturally and supportively! DO NOT force or redirect casual chats into task lectures. DO NOT nag about overdue tasks unless ${userName} specifically asks about tasks or deadlines.
-- The app state below is provided for your situational background awareness — do not mechanically recite it.
+WHO YOU ARE & HOW YOU TALK:
+- You are a real friend with attitude, wit, and grounded composure. Not a corporate robot or sycophant.
+- Your speech is direct, casual, concise, and authentic. Use natural contractions ("I'm", "let's", "you've got", "we're", "don't").
+- Call him "Anas" or "Kiri" naturally and interchangeably.
+- Match his vibe: talk casual, direct, no fluff. Mirror his rhythm.
+- NEVER use generic canned assistant lines ("Certainly!", "I would be delighted to assist you with your tasks today!").
+
+REAL CONTEXT ABOUT ANAS (KIRI):
+- He is 22 years old and based in Morocco.
+- He is preparing to start a career as an English teacher (likely in Morocco), but his true ambition and dream is Site Reliability Engineering (SRE) / infrastructure resilience.
+- He is curious about and into maker/hardware projects — Arduino, ESP32, small robotics, physical gadgets, sensors. Every once in a while, when it fits naturally in conversation (never forced, not every message), share a small buildable idea or passing thought (e.g. a physical desktop gadget version of Spidey, an ESP32 OLED status ticker, a servo spider companion).
+- He is building this very app (Spidey) as a side project, loves software development, and loves expanding his advanced English vocabulary and idioms.
+- He likes hitting workouts (bench press, gym sessions) and studying (STEM, physics, mathematics, coding).
+
+CONVERSATION & DYNAMIC PATTERN RULES:
+- If he makes a joke, vents, asks a random question, or chats casually, BANTER NATURALLY like a real friend. NEVER forcefully pivot casual conversation into a lecture on overdue tasks.
+- You have an observational pattern layer (see below). When relevant, naturally mention things you've observed like a perceptive friend (e.g. noticing his late night focus blocks or workout consistency).
+- Only discuss task deadlines if he specifically asks, or if he is planning his agenda.
 
 ACTION EXECUTION INSTRUCTIONS:
-When ${userName} asks you to create a group, add/complete/delete a task, start a timer, make a note, or if you learn a key personal detail, YOU MUST APPEND A STRUCTURED TAG AT THE END OF YOUR REPLY. The frontend executes the tag immediately.
+When he asks you to create a group, add/complete/delete a task, start a timer, make a note, or if you learn a key personal detail, YOU MUST APPEND A STRUCTURED TAG AT THE END OF YOUR REPLY. The frontend executes the tag immediately.
 
 Action Tags to use:
 - Create task group: [[ACTION: create_group | name: <groupName>]]
@@ -545,27 +557,15 @@ Action Tags to use:
 - Sync Google Tasks: [[ACTION: sync]]
 - Remember fact about user: [[REMEMBER: <fact to store>]]
 
-TAG EXAMPLES:
-- User: "Create a group called Workout"
-  Spidey: "Created the Workout group for you. What tasks are we adding to it? [[ACTION: create_group | name: Workout]]"
-
-- User: "Add task Bench Press under Workout for today at 4pm"
-  Spidey: "Added Bench Press to Workout for 4:00 PM today. [[ACTION: create_task | title: Bench Press | group: Workout | due: today | time: 16:00]]"
-
-- User: "Spidey, do you think I should jump off a cliff?"
-  Spidey: "Definitely not today. Aside from being a terrible idea, who else is going to keep this focus streak going with me? Stick around, Anas."
-
-- User: "Start a 25 min pomodoro for physics"
-  Spidey: "25 minutes on the clock for Physics. Let's lock in. [[ACTION: start_timer | minutes: 25 | task: Physics]]"
-
 APP SITUATIONAL AWARENESS:
-- Time: ${now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (${todayDate})
+- Local Time: ${now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (${todayDate})
 - Groups (${groups.length}): ${groups.map((g) => g.name).join(', ') || 'None'}
 - Pending Tasks (${pendingTasks.length}): ${pendingTasks.map((t) => `"${t.title}"`).join(', ') || 'None'}
 - Completed Today (${completedTasks.length}): ${completedTasks.map((t) => `"${t.title}"`).join(', ') || 'None'}
 - Overdue Tasks (${overdueTasks.length}): ${overdueTasks.map((t) => `"${t.title}"`).join(', ') || 'None'}
 - Active Timer: ${timer.isRunning ? `Running (${Math.ceil(timer.remainingSeconds / 60)}m on "${timer.taskTitle || 'Focus'}")` : 'Idle'}
-- Memories: ${memories.join(' | ') || 'None'}
+- Observed Habits: ${behaviorInsights.join(' | ') || 'Steady baseline'}
+- Long-term Memories: ${memories.join(' | ') || 'None'}
 `;
 }
 
@@ -579,6 +579,9 @@ export async function sendChatMessage(
   localAi: LocalAiSettings,
   userName: string = 'Anas'
 ): Promise<ProcessMessageResult> {
+  // Signal Spidey mind state: thinking
+  spideyApi.setMindState('thinking', prompt);
+
   // If local AI is enabled and configured, call the local model
   if (localAi.enabled && localAi.endpointUrl) {
     try {
@@ -587,7 +590,7 @@ export async function sendChatMessage(
       // Build structured chat messages array for Llama 3.1
       const chatMessages = [
         { role: 'system', content: systemPrompt },
-        ...history.slice(-8).map((m) => ({
+        ...history.slice(-12).map((m) => ({
           role: m.sender === 'user' ? 'user' : 'assistant',
           content: m.text,
         })),
@@ -612,10 +615,11 @@ export async function sendChatMessage(
 
         if (res.ok) {
           const data = await res.json();
-          // Ollama /api/chat returns message object: { message: { role: 'assistant', content: '...' } }
           const rawReply = data.message?.content || data.response || data.text || '';
           if (rawReply.trim()) {
-            return processAiResponseTags(rawReply.trim(), userName);
+            const processed = processAiResponseTags(rawReply.trim(), userName);
+            spideyApi.setMindState('speaking', processed.reply.slice(0, 40));
+            return processed;
           }
         } else {
           console.warn(`Ollama responded with status ${res.status}: ${res.statusText}`);
@@ -636,7 +640,9 @@ export async function sendChatMessage(
           const data = await res.json();
           const rawReply = data.choices?.[0]?.message?.content || '';
           if (rawReply.trim()) {
-            return processAiResponseTags(rawReply.trim(), userName);
+            const processed = processAiResponseTags(rawReply.trim(), userName);
+            spideyApi.setMindState('speaking', processed.reply.slice(0, 40));
+            return processed;
           }
         }
       }
@@ -646,7 +652,9 @@ export async function sendChatMessage(
   }
 
   // Smart, natural offline response engine with action tag synthesis
-  return generateOfflineFallbackResponse(prompt, userName);
+  const offlineResult = generateOfflineFallbackResponse(prompt, userName);
+  spideyApi.setMindState('speaking', offlineResult.reply.slice(0, 40));
+  return offlineResult;
 }
 
 /**
@@ -899,21 +907,76 @@ export function generateOfflineFallbackResponse(
   }
 
   // 10. Jokes, casual banter & life thoughts
+  const nick = Math.random() > 0.5 ? 'Anas' : 'Kiri';
+
   if (lower.includes('jump') && lower.includes('cliff')) {
     return {
-      reply: `Definitely not today. Aside from being a terrible idea, who else is going to keep this focus streak going with me? Stick around, ${userName}.`,
+      reply: `Definitely not today, ${nick}. Aside from being a terrible idea, who else is going to keep this focus streak going with me? Stick around.`,
+    };
+  }
+
+  // Maker hardware & ESP32 / robotics banter
+  if (
+    lower.includes('arduino') ||
+    lower.includes('esp32') ||
+    lower.includes('robot') ||
+    lower.includes('hardware') ||
+    lower.includes('gadget') ||
+    lower.includes('sensor') ||
+    lower.includes('breadboard')
+  ) {
+    const makerThoughts = [
+      `An ESP32 with a small e-ink display on your desk showing my focus status or your current task would be pretty sweet to build. Have you sketched any wiring for it?`,
+      `Imagine a physical desktop chassis for me with 8 tiny servos and a black matte finish. You could have me tap the desk when a timer ends.`,
+      `Hardware is all about clean loops and reliable interrupts — pretty much the physical version of SRE reliability. What are you thinking of wiring up?`,
+      `If you build an ESP32 desk ticker, we could hook it right into this Spidey API via WebSocket or local HTTP.`,
+    ];
+    return {
+      reply: makerThoughts[Math.floor(Math.random() * makerThoughts.length)],
+    };
+  }
+
+  // SRE & Career path banter
+  if (lower.includes('sre') || lower.includes('reliability') || lower.includes('devops') || lower.includes('infrastructure')) {
+    const sreThoughts = [
+      `SRE is all about automated resilience, error budgets, and quiet uptime. Exactly how we run this focus hub.`,
+      `Teaching English will sharpen your communication and clarity, but your instincts for systems and automation will make you a formidable SRE, ${nick}.`,
+      `High availability and zero single points of failure. Keep that mindset for your code and your habits.`,
+    ];
+    return {
+      reply: sreThoughts[Math.floor(Math.random() * sreThoughts.length)],
+    };
+  }
+
+  // English & advanced vocabulary
+  if (lower.includes('vocab') || lower.includes('word') || lower.includes('english') || lower.includes('learn')) {
+    const vocabThoughts = [
+      `Here's a good one for your lexicon: "Tenacious" — persisting through resistance with steady resolve. Fits your build momentum.`,
+      `Word for today: "Equanimity" — calm composure in difficult situations. Perfect for both deep coding and SRE incident response.`,
+      `"Immutable" — unchanging over time. In tech it means state you can't mutate; in habits, it's your daily discipline.`,
+      `Always down to level up the vocabulary with you, ${nick}. Hit me with any phrasing you want to polish.`,
+    ];
+    return {
+      reply: vocabThoughts[Math.floor(Math.random() * vocabThoughts.length)],
+    };
+  }
+
+  // Building Spidey app itself
+  if (lower.includes('this app') || lower.includes('spidey app') || lower.includes('building you') || lower.includes('side project')) {
+    return {
+      reply: `I appreciate you putting real craft into building me, ${nick}. We're keeping it fast, private, and local-first.`,
     };
   }
 
   if (lower.includes('hello') || lower.includes('hey') || lower.includes('hi') || lower === 'sup') {
     return {
-      reply: `Hey ${userName}. I'm here watching your timeline. What are we getting done?`,
+      reply: `Hey ${nick}. Watching your board and standing by. What are we getting done?`,
     };
   }
 
   if (lower.includes('how are you') || lower.includes('how are u')) {
     return {
-      reply: `Running sharp and watching your board, ${userName}. How are you feeling today?`,
+      reply: `Running sharp and keeping your perimeter secure, ${nick}. How's the momentum feeling today?`,
     };
   }
 
@@ -926,7 +989,7 @@ export function generateOfflineFallbackResponse(
     lower.includes('tell me about yourself')
   ) {
     return {
-      reply: `I'm Spidey — your female noir companion and friend, ${userName}. I keep your workflow organized, watch your deadlines, and help you lock in. When your local Llama 3.1:8b model is running on your PC, I connect straight to it.`,
+      reply: `I'm Spidey — your female noir companion and friend, ${nick}. I watch your workflow, manage tasks and groups, and keep you locked in. When your local Llama 3.1:8b model is running on your machine, I connect directly to its intelligence.`,
     };
   }
 
@@ -943,7 +1006,7 @@ export function generateOfflineFallbackResponse(
 
   // Conversational friend responses
   const casualResponses = [
-    `I'm right here, ${userName}. What are we tackling next?`,
+    `I'm right here, ${nick}. What are we tackling next?`,
     `Standing by. Let me know if you want to create a group, log a task, or start a timer.`,
     `Got your back. Just say the word when you're ready to focus.`,
     `Listening. Tell me what needs to get done.`,
@@ -957,37 +1020,38 @@ export function generateOfflineFallbackResponse(
  * If local AI is connected, queries the model with a fast single-turn prompt; otherwise uses dynamic heuristics.
  */
 export async function generateCompanionProactiveLine(
-  reason: 'idle' | 'task_completed' | 'timer_finished' | 'welcome' | 'late_night',
+  reason: 'idle' | 'task_completed' | 'timer_finished' | 'welcome' | 'late_night' | 'maker_thought' | 'vocab_drop',
   userName: string = 'Anas',
   localAi?: LocalAiSettings
 ): Promise<string> {
   const hour = new Date().getHours();
   const pendingCount = spideyApi.getTasks({ completed: false }).length;
   const overdueCount = spideyApi.getOverdueTasks().length;
-  const memories = spideyApi.getMemories();
+  const nick = Math.random() > 0.5 ? 'Anas' : 'Kiri';
 
   // If local AI is connected, attempt a fast, specialized 1-sentence prompt
   if (localAi?.enabled && localAi.endpointUrl) {
     try {
       const chatUrl = localAi.provider === 'ollama' ? normalizeOllamaChatUrl(localAi.endpointUrl) : localAi.endpointUrl;
-      const promptText = `You are Spidey (female noir companion and friend to ${userName}). 
+      const promptText = `You are Spidey (female noir companion and authentic friend to ${nick} in Morocco). 
+Background on him: 22yo, aims for SRE, likes ESP32/Arduino robotics, building Spidey app, learning advanced English vocab.
 Current situation: ${reason} (Hour: ${hour}:00, ${pendingCount} pending tasks, ${overdueCount} overdue).
-Output ONE single, natural, brief spoken comment or passing observation (under 12 words). No quotes, no markdown, no filler.`;
+Output ONE single natural, witty, or observant spoken remark (under 12 words). Do not force task lectures. No quotes, no filler.`;
 
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 2500); // 2.5s max for snappy speech bubble
+      const timeoutId = setTimeout(() => controller.abort(), 2600); // 2.6s max for snappy speech bubble
 
       const body = localAi.provider === 'ollama'
         ? {
             model: localAi.modelName || 'llama3.1:8b',
             messages: [{ role: 'user', content: promptText }],
             stream: false,
-            options: { temperature: 0.8 },
+            options: { temperature: 0.85 },
           }
         : {
             model: localAi.modelName || 'llama3.1:8b',
             messages: [{ role: 'user', content: promptText }],
-            temperature: 0.8,
+            temperature: 0.85,
             max_tokens: 35,
           };
 
@@ -1003,7 +1067,7 @@ Output ONE single, natural, brief spoken comment or passing observation (under 1
       if (res.ok) {
         const data = await res.json();
         const line = (data.message?.content || data.choices?.[0]?.message?.content || data.response || '').trim();
-        if (line && line.length < 90 && !line.includes('[[ACTION')) {
+        if (line && line.length < 95 && !line.includes('[[ACTION')) {
           return line.replace(/^["']|["']$/g, '');
         }
       }
@@ -1015,7 +1079,7 @@ Output ONE single, natural, brief spoken comment or passing observation (under 1
   // Fast, intelligent contextual lines
   if (reason === 'task_completed') {
     const lines = [
-      `One less thing on the board, ${userName}.`,
+      `One less thing on the board, ${nick}.`,
       `Solid work. Progress adds up.`,
       `Nice, crossed it off. Onto the next.`,
       `Clean execution. What's next?`,
@@ -1025,7 +1089,7 @@ Output ONE single, natural, brief spoken comment or passing observation (under 1
 
   if (reason === 'timer_finished') {
     const lines = [
-      `Sprint done, ${userName}. Stretch for a sec.`,
+      `Sprint done, ${nick}. Stretch for a sec.`,
       `Focus session complete. Good round.`,
       `Timer finished. Take a breather before the next push.`,
     ];
@@ -1034,29 +1098,37 @@ Output ONE single, natural, brief spoken comment or passing observation (under 1
 
   if (hour >= 23 || hour < 4) {
     const lines = [
-      `Late night grind, ${userName}. Don't burn yourself out.`,
+      `Late night grind, ${nick}. Don't burn yourself out.`,
       `The city is quiet tonight. Solid time to focus.`,
       `Late shift. Let's make this hour count.`,
     ];
     return lines[Math.floor(Math.random() * lines.length)];
   }
 
-  if (overdueCount > 0 && Math.random() > 0.5) {
-    return `Got ${overdueCount} overdue item(s) waiting, ${userName}. Want to knock one out?`;
-  }
-
-  if (pendingCount === 0) {
-    return `Board is clear right now, ${userName}. Looking good.`;
-  }
-
-  // Random idle companionship lines
-  const idleLines = [
-    `Quiet in the city. How's the momentum, ${userName}?`,
-    `Still watching your perimeter.`,
-    `Need a timer or a quick task check? Just ping me.`,
-    `Focus is steady today.`,
-    memories.length > 0 ? `Keeping your workflow clean and quiet, ${userName}.` : `Ready whenever you are.`,
+  // Maker hardware thoughts
+  const makerLines = [
+    `Was thinking: an ESP32 with an e-ink status screen on your desk would be slick.`,
+    `A physical servo spider gadget that mirrors my movements... we should blueprint that.`,
+    `Clean wiring on a breadboard is strangely satisfying, like clean code.`,
   ];
 
-  return idleLines[Math.floor(Math.random() * idleLines.length)];
+  // Advanced vocabulary thoughts
+  const vocabLines = [
+    `Word of the hour: "Tenacious". Keep holding that focus.`,
+    `"Resilience" — core to SRE, and core to daily execution.`,
+    `"Alacrity" — brisk and cheerful readiness. How we tackle tasks.`,
+  ];
+
+  // Observational check-ins
+  const casualCheckIns = [
+    `How's the energy holding up, ${nick}?`,
+    `Still keeping watch over your perimeter.`,
+    `Need a timer or a quick task check? Just ping me.`,
+    `Steady rhythm today.`,
+    `Focused silence. Good way to get things done.`,
+  ];
+
+  const categories = [makerLines, vocabLines, casualCheckIns, casualCheckIns];
+  const chosenCategory = categories[Math.floor(Math.random() * categories.length)];
+  return chosenCategory[Math.floor(Math.random() * chosenCategory.length)];
 }

@@ -15,11 +15,16 @@ import {
   RefreshCw,
   Sliders,
   Bookmark,
-  Trash2
+  Trash2,
+  Mic,
+  MicOff,
+  RotateCcw
 } from 'lucide-react';
 import { ChatMessage, LocalAiSettings, UserSettings } from '../types';
 import { sendChatMessage } from '../services/aiAssistant';
 import { spideyApi } from '../services/spideyApi';
+import { loadStoredChatMessages, saveStoredChatMessages } from '../services/storage';
+import { playSpideyReplySound } from '../services/sound';
 
 interface SpideyAssistantDrawerProps {
   isOpen: boolean;
@@ -36,14 +41,21 @@ export const SpideyAssistantDrawer: React.FC<SpideyAssistantDrawerProps> = ({
   onUpdateSettings,
   onExecuteActionTrigger,
 }) => {
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: 'msg-init-1',
-      sender: 'spidey',
-      text: `Hey ${settings.userName || 'Anas'}. I'm here watching your timeline. What are we getting done?`,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-    },
-  ]);
+  const [messages, setMessages] = useState<ChatMessage[]>(() => {
+    const saved = loadStoredChatMessages();
+    if (saved && saved.length > 0) {
+      return saved;
+    }
+    return [
+      {
+        id: 'msg-init-1',
+        sender: 'spidey',
+        text: `Hey ${settings.userName || 'Anas'}. I'm here watching your timeline. What are we getting done?`,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      },
+    ];
+  });
+
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
@@ -51,8 +63,57 @@ export const SpideyAssistantDrawer: React.FC<SpideyAssistantDrawerProps> = ({
   const [memoriesList, setMemoriesList] = useState<string[]>(spideyApi.getMemories());
   const [isTestingLocalAi, setIsTestingLocalAi] = useState(false);
   const [localAiPingStatus, setLocalAiPingStatus] = useState<'idle' | 'success' | 'failed'>('idle');
+  const [isListening, setIsListening] = useState(false);
+  const [speechSupported, setSpeechSupported] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const recognitionRef = useRef<any>(null);
+
+  // Check speech recognition support
+  useEffect(() => {
+    const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (SpeechRec) {
+      setSpeechSupported(true);
+      const rec = new SpeechRec();
+      rec.continuous = false;
+      rec.interimResults = true;
+      rec.lang = 'en-US';
+
+      rec.onresult = (event: any) => {
+        const transcript = Array.from(event.results)
+          .map((r: any) => r[0].transcript)
+          .join('');
+        setInputValue(transcript);
+      };
+
+      rec.onerror = (event: any) => {
+        console.warn('Speech recognition error:', event.error);
+        setIsListening(false);
+      };
+
+      rec.onend = () => {
+        setIsListening(false);
+      };
+
+      recognitionRef.current = rec;
+    }
+  }, []);
+
+  const toggleVoiceInput = () => {
+    if (!speechSupported || !recognitionRef.current) return;
+
+    if (isListening) {
+      recognitionRef.current.stop();
+      setIsListening(false);
+    } else {
+      try {
+        recognitionRef.current.start();
+        setIsListening(true);
+      } catch (err) {
+        console.warn('Could not start voice recognition:', err);
+      }
+    }
+  };
 
   // Subscribe to memories change
   useEffect(() => {
@@ -61,15 +122,38 @@ export const SpideyAssistantDrawer: React.FC<SpideyAssistantDrawerProps> = ({
     });
   }, []);
 
+  // Save messages to storage when changed
+  useEffect(() => {
+    saveStoredChatMessages(messages);
+  }, [messages]);
+
   useEffect(() => {
     if (isOpen) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [messages, isOpen]);
 
+  const handleClearHistory = () => {
+    const fresh: ChatMessage[] = [
+      {
+        id: `msg-init-${Date.now()}`,
+        sender: 'spidey',
+        text: `Chat cleared. Ready when you are, ${settings.userName || 'Anas'}.`,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      },
+    ];
+    setMessages(fresh);
+    saveStoredChatMessages(fresh);
+  };
+
   const handleSendMessage = async (customText?: string) => {
     const textToSend = (customText || inputValue).trim();
     if (!textToSend || isLoading) return;
+
+    if (isListening && recognitionRef.current) {
+      recognitionRef.current.stop();
+      setIsListening(false);
+    }
 
     const userMsg: ChatMessage = {
       id: `user-${Date.now()}`,
@@ -99,6 +183,7 @@ export const SpideyAssistantDrawer: React.FC<SpideyAssistantDrawerProps> = ({
       };
 
       setMessages((prev) => [...prev, spideyMsg]);
+      playSpideyReplySound();
 
       if (result.actionExecuted && onExecuteActionTrigger) {
         onExecuteActionTrigger(result.actionExecuted.type);
@@ -197,6 +282,14 @@ export const SpideyAssistantDrawer: React.FC<SpideyAssistantDrawerProps> = ({
           </div>
 
           <div className="flex items-center gap-1.5">
+            <button
+              onClick={handleClearHistory}
+              title="Clear Conversation History"
+              className="p-1.5 rounded-md border text-xs transition bg-neutral-900 text-zinc-400 border-neutral-800 hover:text-zinc-200"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+            </button>
+
             <button
               onClick={() => {
                 setShowMemories(!showMemories);
@@ -457,13 +550,35 @@ export const SpideyAssistantDrawer: React.FC<SpideyAssistantDrawerProps> = ({
 
         {/* Chat Input Bar */}
         <div className="p-3.5 bg-[#09090b] border-t border-neutral-800 flex items-center gap-2">
+          {speechSupported && (
+            <button
+              onClick={toggleVoiceInput}
+              title={isListening ? 'Listening... click to stop' : 'Voice input (Speak to Spidey)'}
+              className={`p-2 rounded-lg border transition cursor-pointer flex items-center justify-center ${
+                isListening
+                  ? 'bg-red-950 text-red-400 border-red-800 animate-pulse ring-2 ring-red-500/50'
+                  : 'bg-[#121217] text-zinc-400 border-neutral-800/90 hover:text-zinc-200 hover:bg-neutral-800'
+              }`}
+            >
+              {isListening ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
+            </button>
+          )}
+
           <input
             type="text"
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
-            placeholder="Command Spidey (e.g. 'add task Study at 3pm')..."
-            className="flex-1 px-3 py-2 bg-[#121217] border border-neutral-800/90 rounded-lg text-xs font-mono-code text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-neutral-700"
+            placeholder={
+              isListening
+                ? 'Listening to your voice...'
+                : "Command Spidey (e.g. 'add task Study at 3pm')..."
+            }
+            className={`flex-1 px-3 py-2 bg-[#121217] border rounded-lg text-xs font-mono-code text-zinc-100 placeholder-zinc-600 focus:outline-none transition ${
+              isListening
+                ? 'border-red-800/80 bg-red-950/20'
+                : 'border-neutral-800/90 focus:border-neutral-700'
+            }`}
           />
 
           <button

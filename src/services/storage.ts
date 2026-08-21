@@ -1,10 +1,11 @@
-import { Task, TaskGroup, Note, UserSettings } from '../types';
+import { Task, TaskGroup, Note, UserSettings, ChatMessage } from '../types';
 
 const TASKS_KEY = 'spidey_tasks_v2';
 const GROUPS_KEY = 'spidey_groups_v2';
 const NOTES_KEY = 'spidey_notes_v2';
 const MEMORIES_KEY = 'spidey_memories_v2';
 const SETTINGS_KEY = 'spidey_settings_v2';
+const CHAT_MESSAGES_KEY = 'spidey_chat_messages_v2';
 
 export function getTodayDateString(): string {
   const today = new Date();
@@ -184,8 +185,11 @@ export const initialNotes: Note[] = [
 ];
 
 export const initialMemories: string[] = [
-  'Anas prefers a focused, quiet workflow with zero unnecessary clutter.',
-  'Works across programming, mathematics, physics, and workout training.',
+  'Anas (also goes by Kiri) is 22 years old and based in Morocco.',
+  'Preparing to start a career as an English teacher, but his true dream is Site Reliability Engineering (SRE).',
+  'Passionate about building software, maker hardware (Arduino, ESP32, small robotics, physical gadgets), and building this Spidey app.',
+  'Loves expanding advanced English vocabulary and deep focus workflows.',
+  'Prefers a direct, casual, no-fluff tone with zero corporate robotic clichés.',
 ];
 
 export const defaultSettings: UserSettings = {
@@ -324,3 +328,59 @@ export function saveStoredSettings(settings: UserSettings): void {
     console.error('Error saving settings:', e);
   }
 }
+
+export function loadStoredChatMessages(userName: string = 'Anas'): ChatMessage[] {
+  if (typeof window === 'undefined') {
+    return [
+      {
+        id: 'msg-init-1',
+        sender: 'spidey',
+        text: `Hey ${userName}. I'm here watching your timeline. What are we getting done?`,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      },
+    ];
+  }
+
+  try {
+    const raw = localStorage.getItem(CHAT_MESSAGES_KEY);
+    if (!raw) {
+      const initial: ChatMessage[] = [
+        {
+          id: 'msg-init-1',
+          sender: 'spidey',
+          text: `Hey ${userName}. I'm here watching your timeline. What are we getting done?`,
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        },
+      ];
+      localStorage.setItem(CHAT_MESSAGES_KEY, JSON.stringify(initial));
+      return initial;
+    }
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      return parsed;
+    }
+  } catch (e) {
+    console.error('Error loading stored chat messages:', e);
+  }
+
+  return [
+    {
+      id: 'msg-init-1',
+      sender: 'spidey',
+      text: `Hey ${userName}. I'm here watching your timeline. What are we getting done?`,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    },
+  ];
+}
+
+export function saveStoredChatMessages(messages: ChatMessage[]): void {
+  if (typeof window === 'undefined') return;
+  try {
+    // Keep max last 200 messages to prevent unbounded growth
+    const capped = messages.slice(-200);
+    localStorage.setItem(CHAT_MESSAGES_KEY, JSON.stringify(capped));
+  } catch (e) {
+    console.error('Error saving chat messages:', e);
+  }
+}
+
