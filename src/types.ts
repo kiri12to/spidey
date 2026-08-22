@@ -58,10 +58,20 @@ export interface TimerState {
 
 export interface LocalAiSettings {
   enabled: boolean;
+  provider?: 'ollama' | 'openai';
   baseUrl: string;
+  /** @deprecated legacy key still present in old localStorage payloads */
+  endpointUrl?: string;
   modelName: string;
   contextSize?: number;
   temperature?: number;
+  /**
+   * Persona ONLY. This is layered on top of the tool contract, it does not
+   * replace it. Editing this can change how Spidey talks; it can never
+   * accidentally disable her hands.
+   */
+  personaPrompt?: string;
+  /** @deprecated old field that used to nuke the whole system prompt */
   customSystemPrompt?: string;
 }
 
@@ -86,6 +96,8 @@ export interface GoogleSyncState {
   isSyncing: boolean;
   lastSyncedAt?: string;
   syncError?: string | null;
+  /** Silent refresh failed — the user must click through consent again. */
+  needsReauth?: boolean;
 }
 
 export interface ChatMessage {
@@ -103,4 +115,3 @@ export interface ChatMessage {
 }
 
 export type AppTab = 'today' | 'calendar' | 'notes' | 'timer' | 'assistant';
-

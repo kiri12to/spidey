@@ -1,6 +1,7 @@
 import { LocalAiSettings } from '../types';
 import { ModelMessage, ModelResponse } from '../agent/types';
 import { parseLocalActionTags } from './provider';
+import { resolveEndpoint } from './endpoint';
 
 /**
  * Handles standard OpenAI-compatible API servers (LM Studio, vLLM, LocalAI, text-generation-webui)
@@ -12,11 +13,9 @@ export async function callOpenAiCompatible(
   maxTokens: number = 600,
   onChunk?: (chunk: string) => void
 ): Promise<ModelResponse> {
-  let chatUrl = (localAi.endpointUrl || 'http://localhost:1234/v1/chat/completions').trim().replace(/\/+$/, '');
-  if (!chatUrl.endsWith('/chat/completions')) {
-    chatUrl = `${chatUrl}/v1/chat/completions`;
-  }
-  const model = localAi.modelName || 'local-model';
+  const ep = resolveEndpoint(localAi);
+  const chatUrl = ep.chatUrl;
+  const model = ep.model;
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 120000);

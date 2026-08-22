@@ -6,6 +6,7 @@ import { dispatchToolCall } from '../tools';
 
 export * from './types';
 export * from './agent';
+export * from './prompt';
 export * from './context';
 
 /**
@@ -15,7 +16,7 @@ export async function sendUserMessage(
   prompt: string,
   history: ChatMessage[],
   localAi: LocalAiSettings,
-  userName: string = 'Anas',
+  userName: string = 'Kiri',
   onStreamChunk?: (chunk: string) => void
 ): Promise<AgentResult> {
   return runAgentTurn(prompt, history, localAi, userName, onStreamChunk);

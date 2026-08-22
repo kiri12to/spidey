@@ -38,6 +38,7 @@ import { spideyApi } from './services/spideyApi';
 import { 
   initAuth, 
   googleSignIn, 
+  reauthorize,
   logout, 
   getAccessToken 
 } from './services/auth';
@@ -287,7 +288,19 @@ export default function App() {
   // Sync Handler
   const triggerSync = async (overrideToken?: string) => {
     const token = overrideToken || (await getAccessToken());
-    if (!token) return;
+
+    // The old code did `if (!token) return;` here -- a silent no-op. Once the
+    // hour-long token expired, sync died without ever telling anyone. Now the
+    // failure is visible and offers a way back.
+    if (!token) {
+      setSyncState((prev) => ({
+        ...prev,
+        isSyncing: false,
+        needsReauth: true,
+        syncError: 'Google session expired. Reconnect to resume syncing.',
+      }));
+      return;
+    }
 
     setSyncState((prev) => ({ ...prev, isSyncing: true, syncError: null }));
 
@@ -305,15 +318,46 @@ export default function App() {
         ...prev,
         isSyncing: false,
         lastSyncedAt: new Date().toISOString(),
+        needsReauth: false,
         syncError: null,
       }));
     } catch (err: any) {
       console.error('Google Tasks Sync error:', err);
+      const msg = String(err?.message || '');
+      // 401/403 => the token died between our check and the request.
+      const expired = /\b(401|403)\b/.test(msg) || /invalid.credentials|unauthenticated/i.test(msg);
+
+      if (expired) {
+        const refreshed = await getAccessToken();
+        if (refreshed) {
+          setSyncState((prev) => ({ ...prev, isSyncing: false }));
+          return triggerSync(refreshed);
+        }
+      }
+
       setSyncState((prev) => ({
         ...prev,
         isSyncing: false,
-        syncError: err.message || 'Sync failed',
+        needsReauth: expired,
+        syncError: expired
+          ? 'Google session expired. Reconnect to resume syncing.'
+          : msg || 'Sync failed',
       }));
+    }
+  };
+
+  /** Opens the consent popup when silent refresh can't recover the session. */
+  const handleReconnect = async () => {
+    try {
+      const token = await reauthorize();
+      if (token) {
+        setSyncState((prev) => ({ ...prev, needsReauth: false, syncError: null }));
+        await triggerSync(token);
+      } else {
+        setSyncState((prev) => ({ ...prev, syncError: 'Reconnect was cancelled or blocked.' }));
+      }
+    } catch (err: any) {
+      setSyncState((prev) => ({ ...prev, syncError: err?.message || 'Reconnect failed' }));
     }
   };
 
@@ -332,7 +376,16 @@ export default function App() {
       }
     } catch (err: any) {
       console.error('Google Sign In Error:', err);
-      alert('Sign-in failed. Please ensure popups are allowed.');
+      const code = err?.code || '';
+      const msg =
+        code === 'auth/popup-blocked'
+          ? 'Your browser blocked the sign-in popup. Allow popups for this site and try again.'
+          : code === 'auth/popup-closed-by-user'
+          ? 'Sign-in window was closed before finishing.'
+          : code === 'auth/unauthorized-domain'
+          ? 'This domain is not authorized in Firebase. Add it under Authentication > Settings > Authorized domains.'
+          : err?.message || 'Sign-in failed.';
+      setSyncState((prev) => ({ ...prev, syncError: msg }));
     }
   };
 
@@ -561,6 +614,38 @@ export default function App() {
         proactiveTrigger={proactiveTrigger}
         onSpiderClick={() => setIsAssistantOpen(true)}
       />
+
+      {/* Sync problem banner.
+          Previously an expired Google session produced no UI at all -- the app
+          still looked connected while sync quietly did nothing. */}
+      {(syncState.needsReauth || syncState.syncError) && (
+        <div
+          className={`relative z-30 px-4 py-2.5 text-sm flex items-center justify-between gap-3 border-b ${
+            syncState.needsReauth
+              ? 'bg-amber-950/60 border-amber-800/60 text-amber-100'
+              : 'bg-red-950/60 border-red-900/60 text-red-100'
+          }`}
+        >
+          <span className="truncate">{syncState.syncError || 'Google sync needs attention.'}</span>
+          <div className="flex items-center gap-2 shrink-0">
+            {syncState.needsReauth && (
+              <button
+                onClick={handleReconnect}
+                className="px-3 py-1 rounded bg-amber-600/80 hover:bg-amber-500 text-white text-xs font-semibold transition"
+              >
+                Reconnect
+              </button>
+            )}
+            <button
+              onClick={() => setSyncState((prev) => ({ ...prev, syncError: null, needsReauth: false }))}
+              className="px-2 py-1 rounded hover:bg-white/10 text-xs opacity-70"
+              aria-label="Dismiss"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Top Header */}
       <Header

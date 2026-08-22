@@ -53,6 +53,32 @@ export function executeNotesAndMemoryTools(toolName: string, args: Record<string
       };
     }
 
+    case 'forget_fact': {
+      const target = args.fact || args.query || args.text;
+      if (!target) return { toolName, success: false, message: 'Missing what to forget' };
+
+      const removed = memoryStore.removeMemory(target);
+      return {
+        toolName,
+        success: removed,
+        message: removed ? `Forgot that.` : `I don't have anything matching "${target}".`,
+      };
+    }
+
+    case 'recall': {
+      const query = args.query || args.about || '';
+      const hits = memoryStore.retrieveRelevantMemories(query, 8);
+      if (hits.length === 0) {
+        return { toolName, success: false, message: `I don't know anything about that yet.` };
+      }
+      return {
+        toolName,
+        success: true,
+        message: `What I know:\n- ${hits.join('\n- ')}`,
+        data: hits,
+      };
+    }
+
     case 'sync': {
       return {
         toolName,

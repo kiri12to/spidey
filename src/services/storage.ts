@@ -204,10 +204,14 @@ export const defaultSettings: UserSettings = {
   spiderSize: 'medium',
   localAi: {
     enabled: true,
-    endpointUrl: 'http://localhost:11434/api/chat',
-    modelName: 'qwen3:8b',
     provider: 'ollama',
-    customSystemPrompt: 'You are Spidey, a sharp, observant female AI companion and real friend to Anas in a noir-styled focus hub. You speak naturally, concisely, and with grounded confidence. No robot clichés or fake enthusiasm.',
+    baseUrl: 'http://localhost:11434',
+    modelName: 'qwen2.5:3b',
+    contextSize: 4096,
+    temperature: 0.7,
+    // NOTE: persona only. The tool contract is appended automatically in
+    // agent/prompt.ts and can no longer be wiped out by editing this.
+    personaPrompt: undefined,
   },
 };
 
@@ -383,4 +387,3 @@ export function saveStoredChatMessages(messages: ChatMessage[]): void {
     console.error('Error saving chat messages:', e);
   }
 }
-

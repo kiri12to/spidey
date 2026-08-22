@@ -2,6 +2,7 @@ import { LocalAiSettings } from '../types';
 import { ModelMessage, ModelResponse, RoutingTier } from '../agent/types';
 import { callOllama, pingOllama } from './ollama';
 import { callOpenAiCompatible } from './openaiCompatible';
+import { resolveEndpoint } from './endpoint';
 
 /**
  * Model Router: Selects the appropriate local model tier (Fast for simple tasks/tools vs Deep for reasoning)
@@ -44,7 +45,7 @@ export async function executeLocalModelCall(
   // Set tight token budgets for low-end hardware efficiency
   const tokens = maxTokens ?? (tier === 'fast' ? 350 : 700);
 
-  if (localAi.provider === 'ollama') {
+  if (resolveEndpoint(localAi).provider === 'ollama') {
     return callOllama(messages, localAi, temperature, tokens, onChunk);
   } else {
     return callOpenAiCompatible(messages, localAi, temperature, tokens, onChunk);
@@ -52,7 +53,7 @@ export async function executeLocalModelCall(
 }
 
 export async function pingLocalServer(localAi: LocalAiSettings): Promise<{ success: boolean; message: string }> {
-  if (localAi.provider === 'ollama') {
+  if (resolveEndpoint(localAi).provider === 'ollama') {
     return pingOllama(localAi);
   } else {
     try {

@@ -11,6 +11,11 @@
     <link rel="manifest" href="/manifest.json" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <!-- Google Identity Services: provides silent access-token refresh.
+         Firebase's signInWithPopup hands out a Google API access token that
+         expires after ~1 hour and Firebase never refreshes it. GIS can mint
+         a fresh one without a popup once consent has been granted. -->
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
     <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=JetBrains+Mono:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Special+Elite&display=swap" rel="stylesheet">
   </head>
   <body class="bg-[#09090b] text-[#f4f4f5] antialiased selection:bg-red-900/60 selection:text-white min-h-screen overflow-x-hidden">

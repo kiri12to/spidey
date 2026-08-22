@@ -1,5 +1,7 @@
 import { LocalAiSettings } from "../types";
-import { ModelMessage, ModelResponse, ToolCall } from "../agent/types";
+import { ModelMessage, ModelResponse } from "../agent/types";
+import { resolveEndpoint } from "./endpoint";
+import { parseActionTags, stripActionTags } from "./actionTags";
 
 const DEFAULT_OLLAMA_URL = "http://localhost:11434";
 const DEFAULT_MODEL = "spidey-qwen:latest";
@@ -9,20 +11,14 @@ const DEFAULT_CONTEXT = 4096;
  * Get the Ollama server URL.
  */
 function getOllamaUrl(settings?: LocalAiSettings): string {
-  return (
-    settings?.baseUrl?.replace(/\/+$/, "") ||
-    DEFAULT_OLLAMA_URL
-  );
+  return resolveEndpoint(settings).baseUrl || DEFAULT_OLLAMA_URL;
 }
 
 /**
  * Get the configured model.
  */
 function getOllamaModel(settings?: LocalAiSettings): string {
-  return (
-    settings?.modelName?.trim() ||
-    DEFAULT_MODEL
-  );
+  return resolveEndpoint(settings).model || DEFAULT_MODEL;
 }
 
 /**
@@ -135,36 +131,6 @@ function convertMessages(messages: ModelMessage[]) {
  *
  * [[ACTION:create_task:{"title":"Study networking"}]]
  */
-export function parseActionTags(text: string): ToolCall[] {
-  const toolCalls: ToolCall[] = [];
-
-  const regex =
-    /\[\[ACTION:([a-zA-Z0-9_-]+):(\{[\s\S]*?\})\]\]/g;
-
-  let match: RegExpExecArray | null;
-
-  while ((match = regex.exec(text)) !== null) {
-    const toolName = match[1];
-    const rawArguments = match[2];
-
-    try {
-      const args = JSON.parse(rawArguments);
-
-      toolCalls.push({
-        toolName,
-        arguments: args,
-      });
-    } catch (error) {
-      console.warn(
-        `Spidey could not parse action arguments for "${toolName}".`,
-        error
-      );
-    }
-  }
-
-  return toolCalls;
-}
-
 /**
  * Call Ollama.
  *
@@ -307,7 +273,7 @@ export async function callOllama(
     }
 
     return {
-      content: fullContent,
+      content: stripActionTags(fullContent),
 
       /**
        * ALWAYS return an array.
@@ -330,12 +296,9 @@ export async function callOllama(
     data?.message?.content || "";
 
   return {
-    content,
-
-    /**
-     * ALWAYS return an array.
-     */
-    toolCalls:
-      parseActionTags(content),
+    content: stripActionTags(content),
+    toolCalls: parseActionTags(content),
   };
 }
+
+export { parseActionTags, stripActionTags };

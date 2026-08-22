@@ -21,7 +21,7 @@ export function buildAgentContext(query: string = '', userName: string = 'Anas')
     groups: spideyApi.getTaskGroups(),
     notes: spideyApi.getNotes().slice(0, 4),
     timer: spideyApi.getTimer(),
-    memories: memoryStore.retrieveRelevantMemories(query, 3),
+    memories: memoryStore.retrieveRelevantMemories(query, 6),
   };
 }
 
