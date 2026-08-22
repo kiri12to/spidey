@@ -9,10 +9,7 @@ import {
 
 export interface ProcessMessageResult {
   reply: string;
-  actionExecuted?: {
-    type: 'create_task' | 'complete_task' | 'delete_task' | 'start_timer' | 'create_note' | 'delete_note' | 'create_group' | 'delete_group' | 'rename_group' | 'move_to_group' | 'sync' | 'toggle_rain' | 'web_search';
-    details: string;
-  };
+  actionExecuted?: ChatMessage['actionExecuted'];
   modelUsed?: string;
   isFallback?: boolean;
   fallbackReason?: string;

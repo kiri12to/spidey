@@ -4,6 +4,7 @@ import { executeGroupTools } from './groups';
 import { executeTimerTools } from './timer';
 import { executeNotesAndMemoryTools } from './notes';
 import { executeWebTool } from './web';
+import { executeSpiderTools } from './spider';
 
 /**
  * ============================================================================
@@ -35,6 +36,7 @@ const HANDLERS: Handler[] = [
   (call) => executeTimerTools(call.toolName, call.arguments),
   (call) => executeNotesAndMemoryTools(call.toolName, call.arguments),
   (call) => executeWebTool(call.toolName, call.arguments),
+  (call) => executeSpiderTools(call.toolName, call.arguments),
 ];
 
 export async function dispatchToolCall(call: ToolCall): Promise<ToolResult> {

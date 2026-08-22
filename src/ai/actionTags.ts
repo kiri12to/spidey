@@ -19,7 +19,7 @@ import { ToolCall } from '../agent/types';
  */
 
 /** Finds the opener + tool name + start of JSON. Closer handled manually. */
-const OPENER = /\[\[?ACTION:([a-zA-Z0-9_-]+)[:\s]+/g;
+const OPENER = /\[{0,2}\s*ACTION\s*:\s*([a-zA-Z0-9_-]+)\s*[:\s]+/g;
 
 interface Found {
   toolName: string;
@@ -105,6 +105,10 @@ export function stripActionTags(text: string): string {
     out = out.slice(0, found[i].start) + out.slice(found[i].end);
   }
   // Belt and braces: any leftover opener with no valid JSON at all.
-  out = out.replace(/\[\[?ACTION:[\s\S]*$/g, '');
+  // Real leak this caught: ", ACTION:create_group:{\"name\":\"Kiri\"}]]"
+  // -- no opening brackets, so the strict pattern never matched and it
+  // rendered straight into the chat bubble.
+  out = out.replace(/,?\s*\[{0,2}\s*ACTION\s*:[\s\S]*$/g, '');
+  out = out.replace(/\]{1,2}\s*$/g, '');
   return out.replace(/\n{3,}/g, '\n\n').trim();
 }

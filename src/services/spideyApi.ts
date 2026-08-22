@@ -9,6 +9,7 @@
  */
 
 import { Task, TaskGroup, Note, TimerState, Priority } from '../types';
+import { tombstones } from './tombstones';
 import { 
   loadStoredTasks, 
   saveStoredTasks, 
@@ -279,6 +280,12 @@ class SpideyApiService {
    */
   public deleteTask(id: string): boolean {
     const initialLen = this.tasks.length;
+    const victim = this.tasks.find((t) => t.id === id);
+    // Record it so the next sync deletes it on Google's side too. Without
+    // this the next pull re-imports it and it reappears on refresh.
+    if (victim?.googleTaskId) {
+      tombstones.markTaskDeleted(victim.googleTaskId, victim.googleTaskListId);
+    }
     this.tasks = this.tasks.filter((t) => t.id !== id);
     if (this.tasks.length !== initialLen) {
       saveStoredTasks(this.tasks);
@@ -382,6 +389,16 @@ class SpideyApiService {
 
   public deleteTaskGroup(id: string): boolean {
     const initialLen = this.groups.length;
+    const victim = this.groups.find((g) => g.id === id);
+    if (victim?.googleTaskListId) {
+      tombstones.markListDeleted(victim.googleTaskListId);
+    }
+    // Tasks inside a deleted group go too, so mark each of them as well.
+    for (const t of this.tasks) {
+      if (t.groupId === id && t.googleTaskId) {
+        tombstones.markTaskDeleted(t.googleTaskId, t.googleTaskListId);
+      }
+    }
     this.groups = this.groups.filter((g) => g.id !== id);
     if (this.groups.length !== initialLen) {
       // Detach tasks from this group

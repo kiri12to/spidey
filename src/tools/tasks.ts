@@ -233,8 +233,46 @@ async function deleteTask(args: Record<string, any>): Promise<ToolResult> {
 }
 
 /**
- * Execute a task-related tool call.
+ * Bulk deletes.
+ *
+ * These didn't exist. "delete all my tasks" had no tool behind it, so Spidey
+ * agreed, said "Got it," and nothing happened -- which looked like her losing
+ * the ability to delete rather than never having had it.
  */
+async function deleteAllTasks(): Promise<ToolResult> {
+  const tasks = spideyApi.getTasks();
+  if (tasks.length === 0) {
+    return { toolName: "delete_all_tasks", success: true, message: "Your task list was already empty." };
+  }
+  let n = 0;
+  for (const t of [...tasks]) {
+    if (spideyApi.deleteTask(t.id)) n++;
+  }
+  return {
+    toolName: "delete_all_tasks",
+    success: true,
+    message: `Deleted ${n} task${n === 1 ? "" : "s"}.`,
+    actionType: "delete_all_tasks",
+    actionDetails: `${n} tasks`,
+  };
+}
+
+async function clearBoard(): Promise<ToolResult> {
+  const tasks = spideyApi.getTasks();
+  const groups = spideyApi.getTaskGroups();
+  let tn = 0;
+  let gn = 0;
+  for (const t of [...tasks]) if (spideyApi.deleteTask(t.id)) tn++;
+  for (const g of [...groups]) if (spideyApi.deleteTaskGroup(g.id)) gn++;
+  return {
+    toolName: "clear_board",
+    success: true,
+    message: `Cleared the board — ${tn} task${tn === 1 ? "" : "s"} and ${gn} group${gn === 1 ? "" : "s"} gone.`,
+    actionType: "clear_board",
+    actionDetails: `${tn} tasks, ${gn} groups`,
+  };
+}
+
 /**
  * Execute a task-related tool call.
  */
@@ -250,6 +288,12 @@ export async function executeTaskTools(
 
     case "delete_task":
       return deleteTask(call.arguments);
+
+    case "delete_all_tasks":
+      return deleteAllTasks();
+
+    case "clear_board":
+      return clearBoard();
 
     default:
       // null = "not a task tool" so the dispatcher tries groups/timer/notes next.

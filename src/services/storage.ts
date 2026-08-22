@@ -207,7 +207,7 @@ export const defaultSettings: UserSettings = {
     provider: 'ollama',
     baseUrl: 'http://localhost:11434',
     modelName: 'qwen2.5:3b',
-    contextSize: 4096,
+    contextSize: 8192,
     temperature: 0.7,
     // NOTE: persona only. The tool contract is appended automatically in
     // agent/prompt.ts and can no longer be wiped out by editing this.
@@ -387,3 +387,4 @@ export function saveStoredChatMessages(messages: ChatMessage[]): void {
     console.error('Error saving chat messages:', e);
   }
 }
+

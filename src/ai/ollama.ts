@@ -2,6 +2,36 @@ import { LocalAiSettings } from "../types";
 import { ModelMessage, ModelResponse } from "../agent/types";
 import { resolveEndpoint } from "./endpoint";
 import { parseActionTags, stripActionTags } from "./actionTags";
+import { TOOL_SCHEMAS } from "../tools/schemas";
+import { ToolCall } from "../agent/types";
+
+/**
+ * Reads Ollama's native tool_calls off a message.
+ *
+ * Qwen2.5-instruct is trained on this format, so calls come back as real JSON
+ * objects instead of a bracket syntax the model has to reproduce by hand.
+ * That removes the entire class of "mangled tag did nothing" failures.
+ */
+function readNativeToolCalls(message: any): ToolCall[] {
+  const raw = message?.tool_calls;
+  if (!Array.isArray(raw)) return [];
+
+  const calls: ToolCall[] = [];
+  for (const c of raw) {
+    const fn = c?.function;
+    if (!fn?.name) continue;
+    let args = fn.arguments;
+    if (typeof args === "string") {
+      try {
+        args = JSON.parse(args);
+      } catch {
+        args = {};
+      }
+    }
+    calls.push({ toolName: fn.name, arguments: args || {} });
+  }
+  return calls;
+}
 
 const DEFAULT_OLLAMA_URL = "http://localhost:11434";
 const DEFAULT_MODEL = "spidey-qwen:latest";
@@ -27,7 +57,15 @@ function getOllamaModel(settings?: LocalAiSettings): string {
  * Your Spidey model is configured for 4096.
  */
 function getContextSize(settings?: LocalAiSettings): number {
-  return settings?.contextSize || DEFAULT_CONTEXT;
+  // Passing num_ctx here OVERRIDES whatever the Modelfile set. The default
+  // used to be 4096, which silently clamped a model built for 16384 back down
+  // to a quarter of its window -- persona, tools, board state and history were
+  // being truncated on every call.
+  //
+  // 8192 is the compromise for a 4GB card: the KV cache for 16K would push
+  // another ~1GB off the GPU and onto the CPU, and inference speed matters
+  // more than headroom she rarely uses.
+  return settings?.contextSize || 8192;
 }
 
 /**
@@ -169,6 +207,11 @@ export async function callOllama(
 
         stream: Boolean(onChunk),
 
+        // Tools go here, NOT in the system prompt. This is the single biggest
+        // reliability win available: the model emits structured calls it was
+        // trained on, and ~700 tokens of prompt go back to personality.
+        tools: TOOL_SCHEMAS,
+
         options: {
           temperature,
 
@@ -202,6 +245,7 @@ export async function callOllama(
 
     let buffer = "";
     let fullContent = "";
+    const nativeCalls: ToolCall[] = [];
 
     while (true) {
       const { value, done } =
@@ -241,6 +285,9 @@ export async function callOllama(
 
             onChunk(text);
           }
+
+          // Tool calls arrive in their own chunk, usually the last one.
+          nativeCalls.push(...readNativeToolCalls(data?.message));
         } catch {
           /**
            * Ignore incomplete JSON.
@@ -265,6 +312,8 @@ export async function callOllama(
 
           onChunk(text);
         }
+
+        nativeCalls.push(...readNativeToolCalls(data?.message));
       } catch {
         /**
          * Ignore incomplete final JSON.
@@ -274,16 +323,9 @@ export async function callOllama(
 
     return {
       content: stripActionTags(fullContent),
-
-      /**
-       * ALWAYS return an array.
-       *
-       * This fixes:
-       *
-       * modelResponse.toolCalls is not iterable
-       */
-      toolCalls:
-        parseActionTags(fullContent),
+      // Native calls win. Tag parsing stays as a fallback for when the model
+      // ignores the tool interface and writes the old bracket syntax anyway.
+      toolCalls: nativeCalls.length > 0 ? nativeCalls : parseActionTags(fullContent),
     };
   }
 
@@ -295,9 +337,10 @@ export async function callOllama(
   const content =
     data?.message?.content || "";
 
+  const native = readNativeToolCalls(data?.message);
   return {
     content: stripActionTags(content),
-    toolCalls: parseActionTags(content),
+    toolCalls: native.length > 0 ? native : parseActionTags(content),
   };
 }
 

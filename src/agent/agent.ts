@@ -125,9 +125,30 @@ what you found and stop. If it failed or came back thin, say that instead.`
     finalReply = toolsExecuted.map((t) => t.message).join(' ');
   }
 
-  // Safety net: if she claimed a change but emitted no tag, don't let the lie stand.
-  if (toolsExecuted.length === 0 && soundsLikeAClaim(finalReply)) {
-    finalReply += "\n\n(...actually, hold on — I didn't touch anything. Say it again and be specific about the name?)";
+  // If she claimed a change but never called a tool, the old code appended a
+  // confession to her message — which fired constantly and read as her
+  // second-guessing herself mid-sentence. Give her one silent retry instead:
+  // she's told the call didn't land and gets to actually make it.
+  if (toolsExecuted.length === 0 && (soundsLikeAClaim(finalReply) || duckedTheRequest(cleanPrompt, finalReply))) {
+    messages.push({ role: 'assistant', content: finalReply });
+    messages.push({
+      role: 'system',
+      content:
+        'You described doing something but did not call any tool, so nothing actually changed. Call the right tool now. If you cannot — the name does not exist on the board, or there is no tool for it — then say plainly that you could not do it and why. Do not repeat the claim.',
+    });
+
+    const retry = await executeLocalModelCall(messages, localAi, 0.4, undefined, undefined);
+    const retryCalls = Array.isArray(retry.toolCalls) ? retry.toolCalls : [];
+
+    for (const call of retryCalls) {
+      const out = await dispatchToolCall(call);
+      toolsExecuted.push(out);
+      if (out.actionType && out.actionDetails) {
+        actionExecuted = { type: out.actionType, details: out.actionDetails };
+      }
+    }
+
+    if (retry.content?.trim()) finalReply = retry.content.trim();
   }
 
   spideyApi.setMindState('speaking', finalReply.slice(0, 45));
@@ -147,4 +168,38 @@ const CLAIM_PATTERNS = [
 
 function soundsLikeAClaim(text: string): boolean {
   return CLAIM_PATTERNS.some((r) => r.test(text));
+}
+
+/** Words that mean "do the thing", including bare confirmations. */
+const IMPERATIVE =
+  /\b(delete|remove|clear|wipe|erase|add|create|make|new|rename|move|start|stop|complete|finish|search|look up|remember|forget|come here|go to)\b/i;
+const AFFIRMATIVE =
+  /^\s*(yes|yeah|yep|yup|sure|ok|okay|do it|go ahead|proceed|confirm|please do|go on|do that)\b/i;
+
+/**
+ * Catches the OTHER failure mode.
+ *
+ * soundsLikeAClaim only fires when she SAYS she did something. But this
+ * happened instead:
+ *
+ *     Kiri:   delete all my tasks
+ *     Spidey: Are you sure?
+ *     Kiri:   yes proceed
+ *     Spidey: Got it.          <- no tool call, nothing happens
+ *
+ * "Got it." claims nothing, so nothing caught it. She agreed to act and then
+ * didn't, which is the same broken promise in a quieter voice.
+ */
+function duckedTheRequest(userText: string, reply: string): boolean {
+  const asked = IMPERATIVE.test(userText) || AFFIRMATIVE.test(userText);
+  if (!asked) return false;
+
+  // If she explicitly declined or said she can't, that's a real answer.
+  if (/\b(can't|cannot|couldn't|don't have|no tool|not able|didn't find|couldn't find)\b/i.test(reply)) {
+    return false;
+  }
+  // A question back is a real answer too -- she's allowed to ask which one.
+  if (/\?\s*$/.test(reply.trim())) return false;
+
+  return true;
 }

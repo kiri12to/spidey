@@ -106,7 +106,7 @@ export interface ChatMessage {
   text: string;
   timestamp: string;
   actionExecuted?: {
-    type: 'create_task' | 'complete_task' | 'delete_task' | 'start_timer' | 'create_note' | 'delete_note' | 'create_group' | 'delete_group' | 'rename_group' | 'move_to_group' | 'sync' | 'toggle_rain' | 'web_search';
+    type: 'create_task' | 'complete_task' | 'delete_task' | 'start_timer' | 'create_note' | 'delete_note' | 'create_group' | 'delete_group' | 'rename_group' | 'move_to_group' | 'delete_all_tasks' | 'delete_all_groups' | 'clear_board' | 'sync' | 'toggle_rain' | 'web_search';
     details: string;
   };
   modelUsed?: string;
@@ -115,3 +115,4 @@ export interface ChatMessage {
 }
 
 export type AppTab = 'today' | 'calendar' | 'notes' | 'timer' | 'assistant';
+

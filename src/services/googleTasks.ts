@@ -1,4 +1,5 @@
 import { Task, TaskGroup } from '../types';
+import { tombstones } from './tombstones';
 
 export interface GoogleTaskList {
   id: string;
@@ -268,6 +269,8 @@ export async function performFullSync(
 
   // Also import any Google Task Lists that don't exist locally as groups (except default)
   for (const rList of remoteLists) {
+    // Don't re-import a list the user just deleted here.
+    if (tombstones.isListDeleted(rList.id)) continue;
     if (rList.id !== defaultListId && !updatedGroups.some((g) => g.googleTaskListId === rList.id || g.name.toLowerCase() === rList.title.toLowerCase())) {
       const newGroupId = `group-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
       updatedGroups.push({
@@ -289,6 +292,33 @@ export async function performFullSync(
   const listsToFetch = [defaultListId, ...Object.keys(listIdToGroupIdMap)];
   const uniqueLists = Array.from(new Set(listsToFetch));
   
+  // ---- Push local deletions up BEFORE pulling, or we'd just re-import
+  // everything we deleted a moment ago.
+  for (const t of tombstones.pendingTasks()) {
+    if (!t.listId) {
+      tombstones.clearTask(t.remoteId);
+      continue;
+    }
+    try {
+      await deleteGoogleTask(token, t.listId, t.remoteId);
+      tombstones.clearTask(t.remoteId);
+    } catch (err: any) {
+      // 404/410 means Google already lost it — job done either way.
+      if (/\b(404|410)\b/.test(String(err?.message))) tombstones.clearTask(t.remoteId);
+      else console.warn('[spidey sync] could not delete remote task:', err?.message);
+    }
+  }
+
+  for (const l of tombstones.pendingLists()) {
+    try {
+      await deleteGoogleTaskList(token, l.remoteId);
+      tombstones.clearList(l.remoteId);
+    } catch (err: any) {
+      if (/\b(404|410)\b/.test(String(err?.message))) tombstones.clearList(l.remoteId);
+      else console.warn('[spidey sync] could not delete remote list:', err?.message);
+    }
+  }
+
   const allRemoteTasks: { listId: string; item: GoogleTaskItem }[] = [];
   const fetchErrors: string[] = [];
 
@@ -297,7 +327,9 @@ export async function performFullSync(
       const items = await getGoogleTasks(token, listId);
       let kept = 0;
       for (const item of items) {
-        if (item.title && !item.deleted) {
+        // Skip anything we deleted locally whose removal hasn't landed on
+        // Google yet, otherwise it comes straight back.
+        if (item.title && !item.deleted && !tombstones.isTaskDeleted(item.id)) {
           allRemoteTasks.push({ listId, item });
           kept++;
         }
